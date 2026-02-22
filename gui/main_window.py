@@ -39,6 +39,10 @@ class WyngWindow(QMainWindow):
         input_layout.addWidget(QLabel("Angle de flèche (°) :"))
         input_layout.addWidget(self.sweep_input)
         
+        self.tailarm_input = QLineEdit("1.0") # 1 mètre par défaut
+        input_layout.addWidget(QLabel("Bras de levier empennage (m) :"))
+        input_layout.addWidget(self.tailarm_input)
+        
         self.airfoil_combo = QComboBox()
         self.airfoil_combo.addItems(self.db.list_airfoils())
         input_layout.addWidget(QLabel("Profil de l'aile :"))
@@ -83,6 +87,7 @@ class WyngWindow(QMainWindow):
             v_stall = float(self.vstall_input.text().replace(',', '.'))
             v_cruise = float(self.vcruise_input.text().replace(',', '.'))
             sweep = float(self.sweep_input.text().replace(',', '.'))
+            tail_arm = float(self.tailarm_input.text().replace(',', '.'))
             airfoil_name = self.airfoil_combo.currentText()
             
             selected_airfoil = self.db.get_airfoil(airfoil_name)
@@ -91,7 +96,8 @@ class WyngWindow(QMainWindow):
                 return
 
             # Calcul physique
-            drone = Drone(mass=mass, v_stall=v_stall, v_cruise=v_cruise, airfoil=selected_airfoil, sweep_angle=sweep)
+            drone = Drone(mass=mass, v_stall=v_stall, v_cruise=v_cruise, 
+                          airfoil=selected_airfoil, sweep_angle=sweep, tail_arm=tail_arm)
 
             # Affichage texte
             results = f"=== DIMENSIONNEMENT WYNG ===\n"
@@ -100,6 +106,8 @@ class WyngWindow(QMainWindow):
             results += "-" * 30 + "\n"
             results += f"AILE : Env={drone.main_wing.span:.2f}m, Corde Emp={drone.main_wing.root_chord:.2f}m, Corde Saum={drone.main_wing.tip_chord:.2f}m\n"
             results += f"EMPENNAGE : Env={drone.h_tail.span:.2f}m, Corde Emp={drone.h_tail.root_chord:.2f}m\n"
+            longueur_totale = tail_arm + drone.main_wing.root_chord + 0.2 # 0.2m forfaitaire pour le nez
+            results += f"CORPS : Longueur totale estimée = {longueur_totale:.2f}m\n"
             results += f"AILE : Env={drone.main_wing.span:.2f}m, Corde Emp={drone.main_wing.root_chord:.2f}m\n"
             results += f"       Calage requis : {drone.wing_incidence:.1f}° (Pour V={v_cruise} m/s)\n"
             
@@ -144,7 +152,7 @@ class WyngWindow(QMainWindow):
         self.ax.fill(x_htail, y_htail, color='lightcoral', edgecolor='red', alpha=0.6, label='Empennage Horizontal')
 
         # 3. Dessin du fuselage (Ligne indicative)
-        self.ax.plot([0, arm + hcr], [0, 0], color='black', linewidth=2, linestyle='--', label='Axe Fuselage')
+        self.ax.plot([-0.2, arm + hcr], [0, 0], color='black', linewidth=3, linestyle='-.', label='Fuselage')
     
         # 4. Dessin du Foyer global (Point Neutre) - Croix bleue
         self.ax.plot(drone.neutral_point_x, 0, marker='x', color='blue', markersize=10, 
