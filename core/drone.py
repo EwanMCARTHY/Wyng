@@ -4,13 +4,16 @@ from core.airfoil import Airfoil, AirfoilDatabase
 class Drone:
     def __init__(self, mass: float, v_stall: float, airfoil: Airfoil, 
                  aspect_ratio: float = 8.0, taper_ratio: float = 0.6,
+                 sweep_angle: float = 0.0, # <-- Nouveau paramètre
                  tail_arm: float = 1.0, vh: float = 0.5, vv: float = 0.04):
+        
         """
         Initialise le drone complet avec son aile et ses empennages.
         tail_arm: Bras de levier de l'empennage en mètres (distance aile-queue)
         vh: Coefficient de volume d'empennage horizontal
         vv: Coefficient de volume d'empennage vertical
         """
+        
         self.mass = mass
         self.v_stall = v_stall
         self.airfoil = airfoil
@@ -21,15 +24,16 @@ class Drone:
         self.rho = 1.225  
         self.g = 9.81     
         
-        # 1. Dimensionnement de l'aile principale
         self.required_surface = self._calculate_required_surface()
+        
+        # On transmet l'angle de flèche à l'aile
         self.main_wing = Wing(
             surface=self.required_surface, 
             aspect_ratio=aspect_ratio, 
-            taper_ratio=taper_ratio
+            taper_ratio=taper_ratio,
+            sweep_angle_deg=sweep_angle
         )
         
-        # 2. Dimensionnement des empennages
         self._calculate_tails()
 
     def _calculate_required_surface(self) -> float:

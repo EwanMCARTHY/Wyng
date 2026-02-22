@@ -31,6 +31,10 @@ class WyngWindow(QMainWindow):
         input_layout.addWidget(QLabel("Vitesse de décrochage (m/s) :"))
         input_layout.addWidget(self.vstall_input)
         
+        self.sweep_input = QLineEdit("15.0") # Flèche de 15 degrés par défaut
+        input_layout.addWidget(QLabel("Angle de flèche (°) :"))
+        input_layout.addWidget(self.sweep_input)
+        
         self.airfoil_combo = QComboBox()
         self.airfoil_combo.addItems(self.db.list_airfoils())
         input_layout.addWidget(QLabel("Profil de l'aile :"))
@@ -73,6 +77,7 @@ class WyngWindow(QMainWindow):
         try:
             mass = float(self.mass_input.text().replace(',', '.'))
             v_stall = float(self.vstall_input.text().replace(',', '.'))
+            sweep = float(self.sweep_input.text().replace(',', '.'))
             airfoil_name = self.airfoil_combo.currentText()
             
             selected_airfoil = self.db.get_airfoil(airfoil_name)
@@ -81,7 +86,7 @@ class WyngWindow(QMainWindow):
                 return
 
             # Calcul physique
-            drone = Drone(mass=mass, v_stall=v_stall, airfoil=selected_airfoil)
+            drone = Drone(mass=mass, v_stall=v_stall, airfoil=selected_airfoil, sweep_angle=sweep)
 
             # Affichage texte
             results = f"=== DIMENSIONNEMENT WYNG ===\n"
@@ -110,13 +115,14 @@ class WyngWindow(QMainWindow):
         self.ax.set_xlabel("Axe longitudinal X (m)")
         self.ax.set_ylabel("Envergure Y (m)")
 
-        # 1. Dessin de l'aile principale (Centrée en x=0)
+        # 1. Dessin de l'aile principale ...
         b2 = drone.main_wing.span / 2
         cr = drone.main_wing.root_chord
         ct = drone.main_wing.tip_chord
+        offset = drone.main_wing.tip_offset_x # Le recul dû à la flèche
         
-        # Coordonnées (X, Y) du bord d'attaque droit, puis gauche
-        x_wing = [0, 0, ct, cr, ct, 0]
+        # Coordonnées : Emplanture BA -> Saumon BA -> Saumon BF -> Emplanture BF -> Saumon gauche BF -> Saumon gauche BA
+        x_wing = [0, offset, offset + ct, cr, offset + ct, offset]
         y_wing = [0, b2, b2, 0, -b2, -b2]
         self.ax.fill(x_wing, y_wing, color='skyblue', edgecolor='blue', alpha=0.6, label='Aile Principale')
 
