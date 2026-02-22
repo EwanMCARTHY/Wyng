@@ -109,10 +109,13 @@ class WyngWindow(QMainWindow):
         self.lbl_surface = QLabel("-")
         self.lbl_wing_span = QLabel("-")
         self.lbl_wing_root = QLabel("-")
+        self.lbl_wing_tip = QLabel("-")
         self.lbl_wing_inc = QLabel("-")
+        
         wing_layout.addRow("Surface requise :", self.lbl_surface)
         wing_layout.addRow("Envergure :", self.lbl_wing_span)
         wing_layout.addRow("Corde emplanture :", self.lbl_wing_root)
+        wing_layout.addRow("Corde saumon :", self.lbl_wing_tip)
         wing_layout.addRow("Calage requis :", self.lbl_wing_inc)
         wing_group.setLayout(wing_layout)
 
@@ -237,6 +240,7 @@ class WyngWindow(QMainWindow):
             self.lbl_surface.setText(f"{drone.required_surface:.3f} m²")
             self.lbl_wing_span.setText(f"{drone.main_wing.span:.2f} m")
             self.lbl_wing_root.setText(f"{drone.main_wing.root_chord:.2f} m")
+            self.lbl_wing_tip.setText(f"{drone.main_wing.tip_chord:.2f} m")
             self.lbl_wing_inc.setText(f"{drone.wing_incidence:.1f}°")
 
             self.lbl_alert.setText("") # On efface l'alerte par défaut
