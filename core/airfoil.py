@@ -2,13 +2,14 @@ import csv
 import os
 
 class Airfoil:
-    def __init__(self, name: str, cl_max: float, cd_0: float, cm_0: float, thickness: float):
+    def __init__(self, name: str, cl_max: float, cd_0: float, cm_0: float, thickness: float, alpha_0: float):
         """Représente les caractéristiques aérodynamiques d'un profil 2D."""
         self.name = name
         self.cl_max = cl_max
         self.cd_0 = cd_0
         self.cm_0 = cm_0
         self.thickness = thickness
+        self.alpha_0 = alpha_0
 
 class AirfoilDatabase:
     def __init__(self, filepath: str = "data/airfoils.csv"):
@@ -32,7 +33,8 @@ class AirfoilDatabase:
                     cl_max=float(row["Cl_max"]),
                     cd_0=float(row["Cd_0"]),
                     cm_0=float(row["Cm_0"]),
-                    thickness=float(row["Thickness"])
+                    thickness=float(row["Thickness"]),
+                    alpha_0=float(row["Alpha_0"])
                 )
 
     def get_airfoil(self, name: str) -> Airfoil:

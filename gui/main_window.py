@@ -31,6 +31,10 @@ class WyngWindow(QMainWindow):
         input_layout.addWidget(QLabel("Vitesse de décrochage (m/s) :"))
         input_layout.addWidget(self.vstall_input)
         
+        self.vcruise_input = QLineEdit("15.0")
+        input_layout.addWidget(QLabel("Vitesse de croisière (m/s) :"))
+        input_layout.addWidget(self.vcruise_input)
+        
         self.sweep_input = QLineEdit("15.0") # Flèche de 15 degrés par défaut
         input_layout.addWidget(QLabel("Angle de flèche (°) :"))
         input_layout.addWidget(self.sweep_input)
@@ -77,6 +81,7 @@ class WyngWindow(QMainWindow):
         try:
             mass = float(self.mass_input.text().replace(',', '.'))
             v_stall = float(self.vstall_input.text().replace(',', '.'))
+            v_cruise = float(self.vcruise_input.text().replace(',', '.'))
             sweep = float(self.sweep_input.text().replace(',', '.'))
             airfoil_name = self.airfoil_combo.currentText()
             
@@ -86,7 +91,7 @@ class WyngWindow(QMainWindow):
                 return
 
             # Calcul physique
-            drone = Drone(mass=mass, v_stall=v_stall, airfoil=selected_airfoil, sweep_angle=sweep)
+            drone = Drone(mass=mass, v_stall=v_stall, v_cruise=v_cruise, airfoil=selected_airfoil, sweep_angle=sweep)
 
             # Affichage texte
             results = f"=== DIMENSIONNEMENT WYNG ===\n"
@@ -95,6 +100,8 @@ class WyngWindow(QMainWindow):
             results += "-" * 30 + "\n"
             results += f"AILE : Env={drone.main_wing.span:.2f}m, Corde Emp={drone.main_wing.root_chord:.2f}m, Corde Saum={drone.main_wing.tip_chord:.2f}m\n"
             results += f"EMPENNAGE : Env={drone.h_tail.span:.2f}m, Corde Emp={drone.h_tail.root_chord:.2f}m\n"
+            results += f"AILE : Env={drone.main_wing.span:.2f}m, Corde Emp={drone.main_wing.root_chord:.2f}m\n"
+            results += f"       Calage requis : {drone.wing_incidence:.1f}° (Pour V={v_cruise} m/s)\n"
             
             self.result_text.setText(results)
             

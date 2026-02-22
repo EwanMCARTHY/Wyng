@@ -2,7 +2,7 @@ from core.wing import Wing
 from core.airfoil import Airfoil, AirfoilDatabase
 
 class Drone:
-    def __init__(self, mass: float, v_stall: float, airfoil: Airfoil, 
+    def __init__(self, mass: float, v_stall: float, v_cruise: float, airfoil: Airfoil, 
                  aspect_ratio: float = 8.0, taper_ratio: float = 0.6,
                  sweep_angle: float = 0.0, # <-- Nouveau paramètre
                  tail_arm: float = 1.0, vh: float = 0.5, vv: float = 0.04):
@@ -16,6 +16,7 @@ class Drone:
         
         self.mass = mass
         self.v_stall = v_stall
+        self.v_cruise = v_cruise
         self.airfoil = airfoil
         self.tail_arm = tail_arm
         self.vh = vh
@@ -36,6 +37,7 @@ class Drone:
         
         self._calculate_tails()
         self._calculate_cg_and_stability()
+        self._calculate_incidence()
 
     def _calculate_required_surface(self) -> float:
         """Calcule la surface alaire minimale requise au décrochage."""
@@ -73,6 +75,17 @@ class Drone:
         # Le CG doit être EN AVANT du point neutre (-)
         margin_distance = static_margin * self.main_wing.mean_aerodynamic_chord
         self.cg_x = self.neutral_point_x - margin_distance
+    
+    def _calculate_incidence(self):
+        """Calcule l'angle de calage de l'aile pour minimiser la traînée en croisière."""
+        weight = self.mass * self.g
+        dynamic_pressure_cruise = 0.5 * self.rho * (self.v_cruise ** 2)
+        
+        # Quel Cz faut-il pour voler en palier à la vitesse de croisière ?
+        cz_cruise = weight / (dynamic_pressure_cruise * self.main_wing.surface)
+        
+        # Pente de portance standard (~0.11 par degré) et prise en compte du alpha_0 du profil
+        self.wing_incidence = (cz_cruise / 0.11) + self.airfoil.alpha_0
 
 
 # --- Test rapide ---
