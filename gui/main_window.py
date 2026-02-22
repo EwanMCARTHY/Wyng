@@ -1,7 +1,8 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QComboBox, QPushButton, QTextEdit,
-                             QFileDialog, QMessageBox, QSlider)
+                             QFileDialog, QMessageBox, QSlider,
+                             QGroupBox, QGridLayout, QFormLayout)
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from core.airfoil import AirfoilDatabase
@@ -89,11 +90,60 @@ class WyngWindow(QMainWindow):
         
         # --- Panneau Droit : Résultats et Schéma ---
         right_layout = QVBoxLayout()
-        self.result_text = QTextEdit()
-        self.result_text.setReadOnly(True)
-        self.result_text.setMaximumHeight(150) 
-        right_layout.addWidget(self.result_text)
         
+        # 1. Le Tableau de Bord des Résultats
+        self.results_box = QGroupBox("Paramètres Géométriques")
+        results_layout = QGridLayout()
+
+        # Encart : Aile Principale
+        wing_group = QGroupBox("Aile Principale")
+        wing_layout = QFormLayout()
+        self.lbl_surface = QLabel("-")
+        self.lbl_wing_span = QLabel("-")
+        self.lbl_wing_root = QLabel("-")
+        self.lbl_wing_inc = QLabel("-")
+        wing_layout.addRow("Surface requise :", self.lbl_surface)
+        wing_layout.addRow("Envergure :", self.lbl_wing_span)
+        wing_layout.addRow("Corde emplanture :", self.lbl_wing_root)
+        wing_layout.addRow("Calage requis :", self.lbl_wing_inc)
+        wing_group.setLayout(wing_layout)
+
+        # Encart : Empennage
+        tail_group = QGroupBox("Empennage")
+        self.tail_layout = QFormLayout()
+        self.lbl_tail_type = QLabel("-")
+        self.lbl_tail_span = QLabel("-")
+        self.lbl_tail_root = QLabel("-")
+        self.lbl_tail_angle = QLabel("-")
+        self.tail_layout.addRow("Architecture :", self.lbl_tail_type)
+        self.tail_layout.addRow("Envergure totale :", self.lbl_tail_span)
+        self.tail_layout.addRow("Corde emplanture :", self.lbl_tail_root)
+        self.tail_layout.addRow("Angle d'ouverture :", self.lbl_tail_angle)
+        tail_group.setLayout(self.tail_layout)
+
+        # Encart : Corps & Stabilité
+        stab_group = QGroupBox("Corps & Stabilité")
+        stab_layout = QFormLayout()
+        self.lbl_length = QLabel("-")
+        self.lbl_np = QLabel("-")
+        self.lbl_cg = QLabel("-")
+        self.lbl_alert = QLabel("")
+        self.lbl_alert.setStyleSheet("color: red; font-weight: bold;") # Texte en rouge pour l'alerte
+        stab_layout.addRow("Longueur totale :", self.lbl_length)
+        stab_layout.addRow("Foyer (X_NP) :", self.lbl_np)
+        stab_layout.addRow("CG cible (X_CG) :", self.lbl_cg)
+        stab_layout.addRow("", self.lbl_alert)
+        stab_group.setLayout(stab_layout)
+
+        # Assemblage de la grille de résultats
+        results_layout.addWidget(wing_group, 0, 0)
+        results_layout.addWidget(tail_group, 0, 1)
+        results_layout.addWidget(stab_group, 0, 2)
+        self.results_box.setLayout(results_layout)
+        
+        right_layout.addWidget(self.results_box)
+        
+        # 2. Canevas Matplotlib pour le schéma (Inchangé)
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
         from matplotlib.figure import Figure
         self.figure = Figure()
@@ -102,7 +152,7 @@ class WyngWindow(QMainWindow):
         right_layout.addWidget(self.canvas)
         
         main_layout.addLayout(input_layout, 1) 
-        main_layout.addLayout(right_layout, 3) # J'ai augmenté la place pour le dessin
+        main_layout.addLayout(right_layout, 3)
 
         # On lance un premier calcul au démarrage pour éviter un écran blanc
         self.calculate_geometry()
@@ -141,51 +191,50 @@ class WyngWindow(QMainWindow):
                           airfoil=selected_airfoil, sweep_angle=sweep, 
                           tail_arm=tail_arm, nose_length=nose, tail_type=tail_type)
 
-            # 5. Formatage exhaustif des résultats
-            results = f"=== DIMENSIONNEMENT WYNG ===\n\n"
-            
-            results += f"[ DONNÉES GLOBALES ]\n"
-            results += f"Masse : {mass} kg | Vitesse croisière : {v_cruise} m/s\n"
-            results += f"Profil : {selected_airfoil.name} (Cz_max = {selected_airfoil.cl_max})\n"
-            results += f"Surface alaire totale requise : {drone.required_surface:.3f} m²\n\n"
-            
-            results += f"[ AILE PRINCIPALE ]\n"
-            for key, value in drone.main_wing.get_summary().items():
-                results += f"  • {key}: {value}\n"
-            results += f"  • Calage requis: {drone.wing_incidence:.1f}°\n\n"
+            # 5. Mise à jour de l'interface graphique (Tableau de bord)
+            self.lbl_surface.setText(f"{drone.required_surface:.3f} m²")
+            self.lbl_wing_span.setText(f"{drone.main_wing.span:.2f} m")
+            self.lbl_wing_root.setText(f"{drone.main_wing.root_chord:.2f} m")
+            self.lbl_wing_inc.setText(f"{drone.wing_incidence:.1f}°")
+
+            self.lbl_alert.setText("") # On efface l'alerte par défaut
 
             if tail_type == "Classique":
-                results += f"[ EMPENNAGE HORIZONTAL ]\n"
-                for key, value in drone.h_tail.get_summary().items():
-                    results += f"  • {key}: {value}\n"
-                results += f"\n[ DÉRIVE VERTICALE ]\n"
-                for key, value in drone.v_tail.get_summary().items():
-                    results += f"  • {key}: {value}\n\n"
-                    
+                self.lbl_tail_type.setText("Classique")
+                self.lbl_tail_span.setText(f"{drone.h_tail.span:.2f} m (H)")
+                self.lbl_tail_root.setText(f"{drone.h_tail.root_chord:.2f} m (H)")
+                self.lbl_tail_angle.setText("N/A")
             elif tail_type == "Empennage en V":
-                results += f"[ EMPENNAGE EN V ]\n"
-                results += f"  • Angle d'ouverture (Gamma): {drone.v_angle:.1f}°\n"
-                for key, value in drone.v_tail_obj.get_summary().items():
-                    results += f"  • {key}: {value}\n\n"
-                    
+                self.lbl_tail_type.setText("V-Tail")
+                self.lbl_tail_span.setText(f"{drone.v_tail_obj.span:.2f} m")
+                self.lbl_tail_root.setText(f"{drone.v_tail_obj.root_chord:.2f} m")
+                self.lbl_tail_angle.setText(f"{drone.v_angle:.1f}°")
             elif tail_type == "Aile Volante":
-                results += f"[ EMPENNAGE ]\n"
-                results += f"  • Aucun (Aile Volante pure)\n\n"
+                self.lbl_tail_type.setText("Aucun")
+                self.lbl_tail_span.setText("N/A")
+                self.lbl_tail_root.setText("N/A")
+                self.lbl_tail_angle.setText("N/A")
                 if selected_airfoil.cm_0 < 0:
-                    results += f"⚠️ ALERTE : Le profil {selected_airfoil.name} a un Cm0 piqueur. Instabilité garantie sans vrillage !\n\n"
+                    self.lbl_alert.setText("⚠️ Profil instable (Cm0 < 0)")
 
-            # Calcul de la longueur totale de la machine
             longueur_totale = nose + drone.main_wing.root_chord + (tail_arm if not is_flying_wing else 0)
-            
-            results += f"[ CORPS & STABILITÉ ]\n"
-            results += f"  • Longueur totale (Nez + Corde + Queue): {longueur_totale:.2f} m\n"
-            results += f"  • Foyer Aérodynamique (X_NP): {drone.neutral_point_x:.3f} m\n"
-            results += f"  • Centre de Gravité cible (X_CG): {drone.cg_x:.3f} m\n"
+            self.lbl_length.setText(f"{longueur_totale:.2f} m")
+            self.lbl_np.setText(f"{drone.neutral_point_x:.3f} m")
+            self.lbl_cg.setText(f"{drone.cg_x:.3f} m")
 
-            # 6. Affichage final
-            self.result_text.setText(results)
+            # 6. Sauvegarde silencieuse du texte pour la fonction d'export
+            self.export_text = (f"=== DIMENSIONNEMENT WYNG ===\n"
+                                f"Masse: {mass}kg | V_croisière: {v_cruise}m/s | Profil: {selected_airfoil.name}\n"
+                                f"Surface: {drone.required_surface:.3f} m²\n"
+                                f"Aile -> Env: {drone.main_wing.span:.2f}m | Corde: {drone.main_wing.root_chord:.2f}m | Calage: {drone.wing_incidence:.1f}°\n"
+                                f"Architecture: {tail_type} | Foyer: {drone.neutral_point_x:.3f}m | CG: {drone.cg_x:.3f}m")
+
             self.export_button.setEnabled(True)
             self._draw_drone(drone)
+
+        except ValueError:
+            # Gestion basique de l'erreur
+            pass
 
         except ValueError:
             self.result_text.setText("⚠️ Veuillez entrer des valeurs numériques valides pour la masse et les vitesses.")
@@ -258,7 +307,7 @@ class WyngWindow(QMainWindow):
             try:
                 # 1. Sauvegarde du texte
                 with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(self.result_text.toPlainText())
+                    f.write(self.export_text)
                 
                 # 2. Sauvegarde du schéma Matplotlib
                 # On remplace l'extension .txt par .png pour l'image
