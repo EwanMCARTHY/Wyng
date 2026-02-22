@@ -9,7 +9,8 @@ class Drone:
                  nose_length: float = 0.2,
                  tail_arm: float = 1.0, vh: float = 0.5, vv: float = 0.04,
                  tail_type: str = "Classique",
-                 h_tail_sweep: float = 0.0):
+                 h_tail_sweep: float = 0.0,
+                 wing_shape: str = "Trapézoïdale"):
         
         """
         Initialise le drone complet avec son aile et ses empennages.
@@ -29,6 +30,7 @@ class Drone:
         self.vv = vv
         self.tail_type = tail_type
         self.dihedral_angle = dihedral_angle
+        self.wing_shape = wing_shape
         
         self.rho = 1.225  
         self.g = 9.81     
@@ -41,7 +43,8 @@ class Drone:
             aspect_ratio=aspect_ratio, 
             taper_ratio=taper_ratio,
             sweep_angle_deg=sweep_angle,
-            dihedral_angle_deg=dihedral_angle
+            dihedral_angle_deg=dihedral_angle,
+            wing_shape=wing_shape
         )
         
         self._calculate_tails()

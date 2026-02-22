@@ -49,6 +49,12 @@ class WyngWindow(QMainWindow):
         input_layout.addWidget(QLabel("Profil de l'aile :"))
         input_layout.addWidget(self.airfoil_combo)
         
+        self.wing_shape_combo = QComboBox()
+        self.wing_shape_combo.addItems(["Trapézoïdale", "Delta", "Lambda"])
+        self.wing_shape_combo.currentTextChanged.connect(self.calculate_geometry)
+        input_layout.addWidget(QLabel("Forme de l'aile :"))
+        input_layout.addWidget(self.wing_shape_combo)
+        
         self.tail_combo = QComboBox()
         self.tail_combo.addItems(["Classique", "Empennage en V", "Aile Volante"])
         self.tail_combo.currentTextChanged.connect(self._on_tail_changed)
@@ -240,6 +246,7 @@ class WyngWindow(QMainWindow):
             self.htail_sweep_label.setText(f"Flèche empennage : {h_sweep:.1f} °")
             
             airfoil_name = self.airfoil_combo.currentText()
+            wing_shape = self.wing_shape_combo.currentText()
             selected_airfoil = self.db.get_airfoil(airfoil_name)
             if not selected_airfoil: 
                 return
@@ -249,7 +256,7 @@ class WyngWindow(QMainWindow):
                           airfoil=selected_airfoil, sweep_angle=sweep, 
                           dihedral_angle=dihedral, tail_arm=tail_arm, 
                           nose_length=nose, tail_type=tail_type,
-                          h_tail_sweep=h_sweep)
+                          h_tail_sweep=h_sweep, wing_shape=wing_shape)
 
             # 5. Mise à jour de l'interface graphique (Tableau de bord)
             self.lbl_surface.setText(f"{drone.required_surface:.3f} m²")
@@ -305,27 +312,35 @@ class WyngWindow(QMainWindow):
         self.ax_top.clear()
         self.ax_front.clear()
         
+        # --- Variables communes nécessaires aux deux vues ---
+        b2 = drone.main_wing.span / 2
+        cr = drone.main_wing.root_chord
+
         # ==========================================
         # 1. VUE DE DESSUS (ax_top)
         # ==========================================
         self.ax_top.set_title("Schéma 2D (Vue de dessus)")
         self.ax_top.set_ylabel("Envergure Y (m)")
 
-        b2 = drone.main_wing.span / 2
-        cr = drone.main_wing.root_chord
-        ct = drone.main_wing.tip_chord
-        offset = drone.main_wing.tip_offset_x
+        # Tracé de l'aile (nouveau système avec outline)
+        x_right = drone.main_wing.outline_x
+        y_right = drone.main_wing.outline_y
         
-        x_wing = [0, offset, offset + ct, cr, offset + ct, offset]
-        y_wing = [0, b2, b2, 0, -b2, -b2]
-        self.ax_top.fill(x_wing, y_wing, color='skyblue', edgecolor='blue', alpha=0.6)
+        x_left = x_right[::-1] 
+        y_left = [-y for y in y_right[::-1]]
+        
+        x_wing_full = x_right + x_left
+        y_wing_full = y_right + y_left
+        
+        self.ax_top.fill(x_wing_full, y_wing_full, color='skyblue', edgecolor='blue', alpha=0.6)
 
+        # Tracé de l'empennage
         if drone.tail_type != "Aile Volante":
             arm = drone.tail_arm
             hb2 = drone.h_tail.span / 2
             hcr = drone.h_tail.root_chord
             hct = drone.h_tail.tip_chord
-            h_offset = drone.h_tail.tip_offset_x
+            h_offset = drone.h_tail.tip_offset_x 
             
             x_htail = [arm, arm + h_offset, arm + h_offset + hct, arm + hcr, arm + h_offset + hct, arm + h_offset]
             y_htail = [0, hb2, hb2, 0, -hb2, -hb2]
@@ -336,12 +351,14 @@ class WyngWindow(QMainWindow):
             elif drone.tail_type == "Empennage en V":
                 self.ax_top.fill(x_htail, y_htail, color='mediumorchid', edgecolor='purple', alpha=0.6)
 
+        # Tracé du fuselage (utilise la variable cr)
         if drone.tail_type == "Aile Volante":
             self.ax_top.plot([-drone.nose_length, cr], [0, 0], color='black', linewidth=3, linestyle='-.')
         else:
             self.ax_top.plot([-drone.nose_length, arm + (drone.h_tail.root_chord if drone.h_tail else 0)], 
                              [0, 0], color='black', linewidth=3, linestyle='-.')
 
+        # Tracé des points de centrage
         self.ax_top.plot(drone.neutral_point_x, 0, marker='x', color='blue', markersize=8, markeredgewidth=2)
         self.ax_top.plot(drone.cg_x, 0, marker='o', color='black', markerfacecolor='white', markersize=8)
         self.ax_top.axis('equal')
@@ -354,34 +371,26 @@ class WyngWindow(QMainWindow):
         self.ax_front.set_xlabel("Envergure Y (m)")
         self.ax_front.set_ylabel("Hauteur Z (m)")
         
-        # Fuselage (point central)
         self.ax_front.plot(0, 0, marker='o', color='black', markersize=10)
 
-        # Tracé des ailes principales (Dièdre)
+        # Tracé des ailes principales (utilise la variable b2)
         z_tip = drone.main_wing.tip_offset_z
-        # Demi-aile droite
         self.ax_front.plot([0, b2], [0, z_tip], color='blue', linewidth=3, label="Aile Principale")
-        # Demi-aile gauche
         self.ax_front.plot([0, -b2], [0, z_tip], color='blue', linewidth=3)
 
         # Tracé de l'empennage de face
         if drone.tail_type == "Classique":
-            # Empennage horizontal (plat)
             self.ax_front.plot([-drone.h_tail.span/2, drone.h_tail.span/2], [0, 0], color='red', linewidth=2, label="H-Tail")
-            # Dérive verticale (montante)
             self.ax_front.plot([0, 0], [0, drone.v_tail.span], color='darkred', linewidth=2, label="V-Tail")
             
         elif drone.tail_type == "Empennage en V":
-            # Calcul de la géométrie de face du V
             import math
             v_span = drone.v_tail_obj.span / 2
             v_angle_rad = math.radians(drone.v_angle)
             z_vtail = v_span * math.sin(v_angle_rad)
             y_vtail = v_span * math.cos(v_angle_rad)
             
-            # V droit
             self.ax_front.plot([0, y_vtail], [0, z_vtail], color='purple', linewidth=2, label="V-Tail")
-            # V gauche
             self.ax_front.plot([0, -y_vtail], [0, z_vtail], color='purple', linewidth=2)
 
         self.ax_front.axis('equal')
