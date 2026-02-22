@@ -61,6 +61,14 @@ class WyngWindow(QMainWindow):
         self.sweep_slider.valueChanged.connect(self.calculate_geometry) # Déclenche le calcul en direct !
         input_layout.addWidget(self.sweep_label)
         input_layout.addWidget(self.sweep_slider)
+        
+        self.dihedral_label = QLabel("Angle de dièdre : 0.0 °")
+        self.dihedral_slider = QSlider(Qt.Orientation.Horizontal)
+        self.dihedral_slider.setRange(0, 150) # 0 à 15.0°
+        self.dihedral_slider.setValue(0)
+        self.dihedral_slider.valueChanged.connect(self.calculate_geometry)
+        input_layout.addWidget(self.dihedral_label)
+        input_layout.addWidget(self.dihedral_slider)
 
         # 2. Slider : Bras de levier (0.3m à 2.5m)
         self.tailarm_label = QLabel("Bras de levier empennage : 1.0 m")
@@ -143,12 +151,19 @@ class WyngWindow(QMainWindow):
         
         right_layout.addWidget(self.results_box)
         
-        # 2. Canevas Matplotlib pour le schéma (Inchangé)
+        # 2. Canevas Matplotlib pour les schémas
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
         from matplotlib.figure import Figure
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
-        self.ax = self.figure.add_subplot(111)
+        
+        # On divise en 2 lignes, 1 colonne
+        self.ax_top = self.figure.add_subplot(211) # En haut : Vue de dessus
+        self.ax_front = self.figure.add_subplot(212) # En bas : Vue de face
+        
+        # On ajuste l'espacement pour que ça ne se chevauche pas
+        self.figure.subplots_adjust(hspace=0.3)
+        
         right_layout.addWidget(self.canvas)
         
         main_layout.addLayout(input_layout, 1) 
@@ -192,6 +207,7 @@ class WyngWindow(QMainWindow):
             sweep = self.sweep_slider.value() / 10.0
             tail_arm = self.tailarm_slider.value() / 100.0
             nose = self.nose_slider.value() / 100.0
+            dihedral = self.dihedral_slider.value() / 10.0
             
             tail_type = self.tail_combo.currentText()
             
@@ -202,6 +218,7 @@ class WyngWindow(QMainWindow):
             
             # Mise à jour des labels des sliders
             self.sweep_label.setText(f"Angle de flèche : {sweep:.1f} °")
+            self.dihedral_label.setText(f"Angle de dièdre : {dihedral:.1f} °")
             self.tailarm_label.setText(f"Bras de levier empennage : {tail_arm:.2f} m")
             self.nose_label.setText(f"Longueur du nez : {nose:.2f} m")
             
@@ -213,6 +230,7 @@ class WyngWindow(QMainWindow):
             # 4. Instanciation du Modèle (Calculs physiques)
             drone = Drone(mass=mass, v_stall=v_stall, v_cruise=v_cruise, 
                           airfoil=selected_airfoil, sweep_angle=sweep, 
+                          dihedral_angle=dihedral,
                           tail_arm=tail_arm, nose_length=nose, tail_type=tail_type)
 
             # 5. Mise à jour de l'interface graphique (Tableau de bord)
@@ -264,26 +282,25 @@ class WyngWindow(QMainWindow):
             self.result_text.setText("⚠️ Veuillez entrer des valeurs numériques valides pour la masse et les vitesses.")
     
     def _draw_drone(self, drone):
-        """Trace la géométrie du drone en vue de dessus."""
-        self.ax.clear()
+        """Trace la géométrie du drone en vue de dessus et de face."""
+        self.ax_top.clear()
+        self.ax_front.clear()
         
-        # Configuration du graphique
-        self.ax.set_title("Schéma 2D du Drone (Vue de dessus)")
-        self.ax.set_xlabel("Axe longitudinal X (m)")
-        self.ax.set_ylabel("Envergure Y (m)")
+        # ==========================================
+        # 1. VUE DE DESSUS (ax_top)
+        # ==========================================
+        self.ax_top.set_title("Schéma 2D (Vue de dessus)")
+        self.ax_top.set_ylabel("Envergure Y (m)")
 
-        # 1. Dessin de l'aile principale ...
         b2 = drone.main_wing.span / 2
         cr = drone.main_wing.root_chord
         ct = drone.main_wing.tip_chord
-        offset = drone.main_wing.tip_offset_x # Le recul dû à la flèche
+        offset = drone.main_wing.tip_offset_x
         
-        # Coordonnées : Emplanture BA -> Saumon BA -> Saumon BF -> Emplanture BF -> Saumon gauche BF -> Saumon gauche BA
         x_wing = [0, offset, offset + ct, cr, offset + ct, offset]
         y_wing = [0, b2, b2, 0, -b2, -b2]
-        self.ax.fill(x_wing, y_wing, color='skyblue', edgecolor='blue', alpha=0.6, label='Aile Principale')
+        self.ax_top.fill(x_wing, y_wing, color='skyblue', edgecolor='blue', alpha=0.6)
 
-        # 2. Dessin de l'empennage
         if drone.tail_type != "Aile Volante":
             arm = drone.tail_arm
             hb2 = drone.h_tail.span / 2
@@ -294,32 +311,63 @@ class WyngWindow(QMainWindow):
             y_htail = [0, hb2, hb2, 0, -hb2, -hb2]
             
             if drone.tail_type == "Classique":
-                self.ax.fill(x_htail, y_htail, color='lightcoral', edgecolor='red', alpha=0.6, label='Empennage Horizontal')
-                self.ax.plot([arm, arm+hcr], [0, 0], color='red', linewidth=2)
+                self.ax_top.fill(x_htail, y_htail, color='lightcoral', edgecolor='red', alpha=0.6)
+                self.ax_top.plot([arm, arm+hcr], [0, 0], color='red', linewidth=2)
             elif drone.tail_type == "Empennage en V":
-                self.ax.fill(x_htail, y_htail, color='mediumorchid', edgecolor='purple', alpha=0.6, label=f'V-Tail ({drone.v_angle:.1f}°)')
+                self.ax_top.fill(x_htail, y_htail, color='mediumorchid', edgecolor='purple', alpha=0.6)
 
-        # 3. Dessin du fuselage central
         if drone.tail_type == "Aile Volante":
-            # Le fuselage s'arrête au bord de fuite de l'aile
-            self.ax.plot([-drone.nose_length, cr], [0, 0], color='black', linewidth=3, linestyle='-.', label='Pod Central')
+            self.ax_top.plot([-drone.nose_length, cr], [0, 0], color='black', linewidth=3, linestyle='-.')
         else:
-            self.ax.plot([-drone.nose_length, arm + hcr], [0, 0], color='black', linewidth=3, linestyle='-.', label='Fuselage')
-    
-        # 4. Dessin du Foyer global (Point Neutre) - Croix bleue
-        self.ax.plot(drone.neutral_point_x, 0, marker='x', color='blue', markersize=10, 
-                     markeredgewidth=2, label='Foyer (Point Neutre)')
-                     
-        # 5. Dessin du Centre de Gravité (CG) - Symbole classique de centrage noir et blanc
-        self.ax.plot(drone.cg_x, 0, marker='o', color='black', markerfacecolor='white', 
-                     markersize=12, markeredgewidth=2, label='Centre de Gravité (CG)')
+            self.ax_top.plot([-drone.nose_length, arm + (drone.h_tail.root_chord if drone.h_tail else 0)], 
+                             [0, 0], color='black', linewidth=3, linestyle='-.')
 
-        # Mise en forme finale
-        self.ax.axis('equal') # Force les proportions réelles
-        self.ax.grid(True, linestyle=':')
-        self.ax.legend(loc='upper right', fontsize='small')
+        self.ax_top.plot(drone.neutral_point_x, 0, marker='x', color='blue', markersize=8, markeredgewidth=2)
+        self.ax_top.plot(drone.cg_x, 0, marker='o', color='black', markerfacecolor='white', markersize=8)
+        self.ax_top.axis('equal')
+        self.ax_top.grid(True, linestyle=':')
+
+        # ==========================================
+        # 2. VUE DE FACE (ax_front)
+        # ==========================================
+        self.ax_front.set_title("Élévation (Vue de face)")
+        self.ax_front.set_xlabel("Envergure Y (m)")
+        self.ax_front.set_ylabel("Hauteur Z (m)")
         
-        # Rafraîchissement du canevas
+        # Fuselage (point central)
+        self.ax_front.plot(0, 0, marker='o', color='black', markersize=10)
+
+        # Tracé des ailes principales (Dièdre)
+        z_tip = drone.main_wing.tip_offset_z
+        # Demi-aile droite
+        self.ax_front.plot([0, b2], [0, z_tip], color='blue', linewidth=3, label="Aile Principale")
+        # Demi-aile gauche
+        self.ax_front.plot([0, -b2], [0, z_tip], color='blue', linewidth=3)
+
+        # Tracé de l'empennage de face
+        if drone.tail_type == "Classique":
+            # Empennage horizontal (plat)
+            self.ax_front.plot([-drone.h_tail.span/2, drone.h_tail.span/2], [0, 0], color='red', linewidth=2, label="H-Tail")
+            # Dérive verticale (montante)
+            self.ax_front.plot([0, 0], [0, drone.v_tail.span], color='darkred', linewidth=2, label="V-Tail")
+            
+        elif drone.tail_type == "Empennage en V":
+            # Calcul de la géométrie de face du V
+            import math
+            v_span = drone.v_tail_obj.span / 2
+            v_angle_rad = math.radians(drone.v_angle)
+            z_vtail = v_span * math.sin(v_angle_rad)
+            y_vtail = v_span * math.cos(v_angle_rad)
+            
+            # V droit
+            self.ax_front.plot([0, y_vtail], [0, z_vtail], color='purple', linewidth=2, label="V-Tail")
+            # V gauche
+            self.ax_front.plot([0, -y_vtail], [0, z_vtail], color='purple', linewidth=2)
+
+        self.ax_front.axis('equal')
+        self.ax_front.grid(True, linestyle=':')
+        self.ax_front.legend(loc='upper right', fontsize='small')
+        
         self.canvas.draw()
     
     def export_results(self):
