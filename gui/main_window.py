@@ -26,14 +26,17 @@ class WyngWindow(QMainWindow):
         
         # Entrées textuelles (pour les valeurs absolues)
         self.mass_input = QLineEdit("2.5")
+        self.mass_input.textChanged.connect(self.calculate_geometry)
         input_layout.addWidget(QLabel("Masse cible (kg) :"))
         input_layout.addWidget(self.mass_input)
         
         self.vstall_input = QLineEdit("10.0")
+        self.vstall_input.textChanged.connect(self.calculate_geometry)
         input_layout.addWidget(QLabel("Vitesse décrochage (m/s) :"))
         input_layout.addWidget(self.vstall_input)
         
         self.vcruise_input = QLineEdit("15.0")
+        self.vcruise_input.textChanged.connect(self.calculate_geometry)
         input_layout.addWidget(QLabel("Vitesse croisière (m/s) :"))
         input_layout.addWidget(self.vcruise_input)
         
@@ -43,7 +46,11 @@ class WyngWindow(QMainWindow):
         input_layout.addWidget(QLabel("Profil de l'aile :"))
         input_layout.addWidget(self.airfoil_combo)
         
-        # --- NOUVEAU : Les Sliders Géométriques ---
+        self.tail_combo = QComboBox()
+        self.tail_combo.addItems(["Classique", "Empennage en V", "Aile Volante"])
+        self.tail_combo.currentTextChanged.connect(self.calculate_geometry)
+        input_layout.addWidget(QLabel("Architecture Empennage :"))
+        input_layout.addWidget(self.tail_combo)
         
         # 1. Slider : Angle de flèche (0 à 45°)
         self.sweep_label = QLabel("Angle de flèche : 0.0 °")
@@ -102,47 +109,87 @@ class WyngWindow(QMainWindow):
 
     def calculate_geometry(self):
         try:
-            # Récupération des textes
+            # 1. Récupération des entrées textuelles
             mass = float(self.mass_input.text().replace(',', '.'))
             v_stall = float(self.vstall_input.text().replace(',', '.'))
             v_cruise = float(self.vcruise_input.text().replace(',', '.'))
             
-            # Récupération des sliders (on divise par 10)
+            # 2. Récupération des sliders (division pour remettre à l'échelle)
             sweep = self.sweep_slider.value() / 10.0
-            tail_arm = self.tailarm_slider.value() / 100.0 if self.tailarm_slider.maximum() > 450 else self.tailarm_slider.value() / 100.0 # correction d'échelle
-            tail_arm = self.tailarm_slider.value() / 100.0 # On divise par 100 pour être précis au cm
+            tail_arm = self.tailarm_slider.value() / 100.0
             nose = self.nose_slider.value() / 100.0
             
-            # Mise à jour des labels au dessus des sliders
+            tail_type = self.tail_combo.currentText()
+            
+            # 3. Masquage dynamique de l'interface (Logique UX)
+            is_flying_wing = (tail_type == "Aile Volante")
+            self.tailarm_label.setVisible(not is_flying_wing)
+            self.tailarm_slider.setVisible(not is_flying_wing)
+            
+            # Mise à jour des labels des sliders
             self.sweep_label.setText(f"Angle de flèche : {sweep:.1f} °")
             self.tailarm_label.setText(f"Bras de levier empennage : {tail_arm:.2f} m")
             self.nose_label.setText(f"Longueur du nez : {nose:.2f} m")
             
             airfoil_name = self.airfoil_combo.currentText()
             selected_airfoil = self.db.get_airfoil(airfoil_name)
-            if not selected_airfoil: return
+            if not selected_airfoil: 
+                return
 
-            # Instanciation
+            # 4. Instanciation du Modèle (Calculs physiques)
             drone = Drone(mass=mass, v_stall=v_stall, v_cruise=v_cruise, 
-                          airfoil=selected_airfoil, sweep_angle=sweep, tail_arm=tail_arm, nose_length=nose)
+                          airfoil=selected_airfoil, sweep_angle=sweep, 
+                          tail_arm=tail_arm, nose_length=nose, tail_type=tail_type)
 
-            # --- Reste du code d'affichage inchangé ---
-            longueur_totale = nose + drone.main_wing.root_chord + tail_arm
+            # 5. Formatage exhaustif des résultats
+            results = f"=== DIMENSIONNEMENT WYNG ===\n\n"
             
-            results = f"=== DIMENSIONNEMENT WYNG ===\n"
-            results += f"Masse : {mass} kg | Vitesse croisière : {v_cruise} m/s | Profil : {selected_airfoil.name}\n"
-            results += f"Surface requise : {drone.required_surface:.3f} m²\n"
-            results += "-" * 30 + "\n"
-            results += f"AILE : Env={drone.main_wing.span:.2f}m, Corde={drone.main_wing.root_chord:.2f}m | Calage : {drone.wing_incidence:.1f}°\n"
-            results += f"CORPS : Longueur totale = {longueur_totale:.2f}m\n"
+            results += f"[ DONNÉES GLOBALES ]\n"
+            results += f"Masse : {mass} kg | Vitesse croisière : {v_cruise} m/s\n"
+            results += f"Profil : {selected_airfoil.name} (Cz_max = {selected_airfoil.cl_max})\n"
+            results += f"Surface alaire totale requise : {drone.required_surface:.3f} m²\n\n"
             
+            results += f"[ AILE PRINCIPALE ]\n"
+            for key, value in drone.main_wing.get_summary().items():
+                results += f"  • {key}: {value}\n"
+            results += f"  • Calage requis: {drone.wing_incidence:.1f}°\n\n"
+
+            if tail_type == "Classique":
+                results += f"[ EMPENNAGE HORIZONTAL ]\n"
+                for key, value in drone.h_tail.get_summary().items():
+                    results += f"  • {key}: {value}\n"
+                results += f"\n[ DÉRIVE VERTICALE ]\n"
+                for key, value in drone.v_tail.get_summary().items():
+                    results += f"  • {key}: {value}\n\n"
+                    
+            elif tail_type == "Empennage en V":
+                results += f"[ EMPENNAGE EN V ]\n"
+                results += f"  • Angle d'ouverture (Gamma): {drone.v_angle:.1f}°\n"
+                for key, value in drone.v_tail_obj.get_summary().items():
+                    results += f"  • {key}: {value}\n\n"
+                    
+            elif tail_type == "Aile Volante":
+                results += f"[ EMPENNAGE ]\n"
+                results += f"  • Aucun (Aile Volante pure)\n\n"
+                if selected_airfoil.cm_0 < 0:
+                    results += f"⚠️ ALERTE : Le profil {selected_airfoil.name} a un Cm0 piqueur. Instabilité garantie sans vrillage !\n\n"
+
+            # Calcul de la longueur totale de la machine
+            longueur_totale = nose + drone.main_wing.root_chord + (tail_arm if not is_flying_wing else 0)
+            
+            results += f"[ CORPS & STABILITÉ ]\n"
+            results += f"  • Longueur totale (Nez + Corde + Queue): {longueur_totale:.2f} m\n"
+            results += f"  • Foyer Aérodynamique (X_NP): {drone.neutral_point_x:.3f} m\n"
+            results += f"  • Centre de Gravité cible (X_CG): {drone.cg_x:.3f} m\n"
+
+            # 6. Affichage final
             self.result_text.setText(results)
             self.export_button.setEnabled(True)
             self._draw_drone(drone)
 
         except ValueError:
             self.result_text.setText("⚠️ Veuillez entrer des valeurs numériques valides pour la masse et les vitesses.")
-
+    
     def _draw_drone(self, drone):
         """Trace la géométrie du drone en vue de dessus."""
         self.ax.clear()
@@ -163,18 +210,28 @@ class WyngWindow(QMainWindow):
         y_wing = [0, b2, b2, 0, -b2, -b2]
         self.ax.fill(x_wing, y_wing, color='skyblue', edgecolor='blue', alpha=0.6, label='Aile Principale')
 
-        # 2. Dessin de l'empennage horizontal (Placé à x = tail_arm)
-        arm = drone.tail_arm
-        hb2 = drone.h_tail.span / 2
-        hcr = drone.h_tail.root_chord
-        hct = drone.h_tail.tip_chord
-        
-        x_htail = [arm, arm, arm+hct, arm+hcr, arm+hct, arm]
-        y_htail = [0, hb2, hb2, 0, -hb2, -hb2]
-        self.ax.fill(x_htail, y_htail, color='lightcoral', edgecolor='red', alpha=0.6, label='Empennage Horizontal')
+        # 2. Dessin de l'empennage
+        if drone.tail_type != "Aile Volante":
+            arm = drone.tail_arm
+            hb2 = drone.h_tail.span / 2
+            hcr = drone.h_tail.root_chord
+            hct = drone.h_tail.tip_chord
+            
+            x_htail = [arm, arm, arm+hct, arm+hcr, arm+hct, arm]
+            y_htail = [0, hb2, hb2, 0, -hb2, -hb2]
+            
+            if drone.tail_type == "Classique":
+                self.ax.fill(x_htail, y_htail, color='lightcoral', edgecolor='red', alpha=0.6, label='Empennage Horizontal')
+                self.ax.plot([arm, arm+hcr], [0, 0], color='red', linewidth=2)
+            elif drone.tail_type == "Empennage en V":
+                self.ax.fill(x_htail, y_htail, color='mediumorchid', edgecolor='purple', alpha=0.6, label=f'V-Tail ({drone.v_angle:.1f}°)')
 
-        # 3. Dessin du fuselage (Ligne indicative)
-        self.ax.plot([-drone.nose_length, arm + hcr], [0, 0], color='black', linewidth=3, linestyle='-.', label='Fuselage')
+        # 3. Dessin du fuselage central
+        if drone.tail_type == "Aile Volante":
+            # Le fuselage s'arrête au bord de fuite de l'aile
+            self.ax.plot([-drone.nose_length, cr], [0, 0], color='black', linewidth=3, linestyle='-.', label='Pod Central')
+        else:
+            self.ax.plot([-drone.nose_length, arm + hcr], [0, 0], color='black', linewidth=3, linestyle='-.', label='Fuselage')
     
         # 4. Dessin du Foyer global (Point Neutre) - Croix bleue
         self.ax.plot(drone.neutral_point_x, 0, marker='x', color='blue', markersize=10, 

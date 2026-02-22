@@ -6,7 +6,8 @@ class Drone:
                  aspect_ratio: float = 8.0, taper_ratio: float = 0.6,
                  sweep_angle: float = 0.0,
                  nose_length: float = 0.2,
-                 tail_arm: float = 1.0, vh: float = 0.5, vv: float = 0.04):
+                 tail_arm: float = 1.0, vh: float = 0.5, vv: float = 0.04,
+                 tail_type: str = "Classique"):
         
         """
         Initialise le drone complet avec son aile et ses empennages.
@@ -23,6 +24,7 @@ class Drone:
         self.nose_length = nose_length
         self.vh = vh
         self.vv = vv
+        self.tail_type = tail_type
         
         self.rho = 1.225  
         self.g = 9.81     
@@ -49,32 +51,46 @@ class Drone:
         return surface
 
     def _calculate_tails(self):
-        """Calcule et instancie les empennages horizontal et vertical."""
-        # Surface empennage horizontal (SH)
-        sh_surface = (self.vh * self.main_wing.surface * self.main_wing.mean_aerodynamic_chord) / self.tail_arm
-        # On instancie une nouvelle "Wing" pour l'empennage (allongement plus faible, ex: 4.0)
-        self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7)
+        import math
+        
+        if self.tail_type == "Aile Volante":
+            # Pas d'empennage, la machine est réduite à son aile
+            self.h_tail = None
+            self.v_tail = None
+            self.v_tail_obj = None
+            self.v_angle = 0.0
+            return # On sort de la fonction
 
-        # Surface dérive verticale (SV)
+        sh_surface = (self.vh * self.main_wing.surface * self.main_wing.mean_aerodynamic_chord) / self.tail_arm
         sv_surface = (self.vv * self.main_wing.surface * self.main_wing.span) / self.tail_arm
-        # On instancie une nouvelle "Wing" pour la dérive (allongement très faible, ex: 1.5)
-        self.v_tail = Wing(surface=sv_surface, aspect_ratio=1.5, taper_ratio=0.8)
+
+        if self.tail_type == "Classique":
+            self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7)
+            self.v_tail = Wing(surface=sv_surface, aspect_ratio=1.5, taper_ratio=0.8)
+            self.v_angle = 0.0
+            
+        elif self.tail_type == "Empennage en V":
+            vtail_surface = sh_surface + sv_surface
+            self.v_angle = math.degrees(math.atan(math.sqrt(sv_surface / sh_surface)))
+            self.v_tail_obj = Wing(surface=vtail_surface, aspect_ratio=4.0, taper_ratio=0.7)
+            self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7)
+            self.v_tail = None
     
     def _calculate_cg_and_stability(self, static_margin: float = 0.15):
-        """Calcule le foyer global (Point Neutre) et la position cible du CG."""
-        # 1. Foyer de l'empennage (On ajoute le bras de levier)
-        h_tail_ac_x = self.tail_arm + self.h_tail.aerodynamic_center_x
+        """Calcule le foyer global et la position cible du CG."""
         
-        # 2. Foyer global (Point Neutre) - Barycentre des surfaces
-        # Formule : (Xf_wing * S_wing + Xf_tail * S_tail) / (S_wing + S_tail)
-        numerator = (self.main_wing.aerodynamic_center_x * self.main_wing.surface) + \
-                    (h_tail_ac_x * self.h_tail.surface)
-        denominator = self.main_wing.surface + self.h_tail.surface
+        # Si c'est une aile volante, le foyer global EST le foyer de l'aile
+        if self.tail_type == "Aile Volante" or self.h_tail is None:
+            self.neutral_point_x = self.main_wing.aerodynamic_center_x
+        else:
+            # Calcul barycentrique classique avec empennage
+            h_tail_ac_x = self.tail_arm + self.h_tail.aerodynamic_center_x
+            numerator = (self.main_wing.aerodynamic_center_x * self.main_wing.surface) + \
+                        (h_tail_ac_x * self.h_tail.surface)
+            denominator = self.main_wing.surface + self.h_tail.surface
+            self.neutral_point_x = numerator / denominator
         
-        self.neutral_point_x = numerator / denominator
-        
-        # 3. Position requise du Centre de Gravité pour respecter la marge statique
-        # Le CG doit être EN AVANT du point neutre (-)
+        # Marge statique (Le CG devant le Foyer)
         margin_distance = static_margin * self.main_wing.mean_aerodynamic_chord
         self.cg_x = self.neutral_point_x - margin_distance
     
