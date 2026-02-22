@@ -31,6 +31,15 @@ class Wing:
         
         # Calcul du recul du saumon dû à la flèche
         self.tip_offset_x = (self.span / 2) * math.tan(self.sweep_angle_rad)
+        
+        # Position en Y de la Corde Moyenne Aérodynamique (MAC)
+        self.y_mac = (self.span / 6) * ((1 + 2 * self.taper_ratio) / (1 + self.taper_ratio))
+        
+        # Recul du bord d'attaque à la position de la MAC dû à la flèche
+        self.mac_lead_edge_x = self.y_mac * math.tan(self.sweep_angle_rad)
+        
+        # Foyer aérodynamique de l'aile (à 25% de la MAC)
+        self.aerodynamic_center_x = self.mac_lead_edge_x + (0.25 * self.mean_aerodynamic_chord)
 
     def get_summary(self) -> dict:
         return {

@@ -35,6 +35,7 @@ class Drone:
         )
         
         self._calculate_tails()
+        self._calculate_cg_and_stability()
 
     def _calculate_required_surface(self) -> float:
         """Calcule la surface alaire minimale requise au décrochage."""
@@ -54,6 +55,24 @@ class Drone:
         sv_surface = (self.vv * self.main_wing.surface * self.main_wing.span) / self.tail_arm
         # On instancie une nouvelle "Wing" pour la dérive (allongement très faible, ex: 1.5)
         self.v_tail = Wing(surface=sv_surface, aspect_ratio=1.5, taper_ratio=0.8)
+    
+    def _calculate_cg_and_stability(self, static_margin: float = 0.15):
+        """Calcule le foyer global (Point Neutre) et la position cible du CG."""
+        # 1. Foyer de l'empennage (On ajoute le bras de levier)
+        h_tail_ac_x = self.tail_arm + self.h_tail.aerodynamic_center_x
+        
+        # 2. Foyer global (Point Neutre) - Barycentre des surfaces
+        # Formule : (Xf_wing * S_wing + Xf_tail * S_tail) / (S_wing + S_tail)
+        numerator = (self.main_wing.aerodynamic_center_x * self.main_wing.surface) + \
+                    (h_tail_ac_x * self.h_tail.surface)
+        denominator = self.main_wing.surface + self.h_tail.surface
+        
+        self.neutral_point_x = numerator / denominator
+        
+        # 3. Position requise du Centre de Gravité pour respecter la marge statique
+        # Le CG doit être EN AVANT du point neutre (-)
+        margin_distance = static_margin * self.main_wing.mean_aerodynamic_chord
+        self.cg_x = self.neutral_point_x - margin_distance
 
 
 # --- Test rapide ---

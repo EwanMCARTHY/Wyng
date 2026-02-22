@@ -138,6 +138,14 @@ class WyngWindow(QMainWindow):
 
         # 3. Dessin du fuselage (Ligne indicative)
         self.ax.plot([0, arm + hcr], [0, 0], color='black', linewidth=2, linestyle='--', label='Axe Fuselage')
+    
+        # 4. Dessin du Foyer global (Point Neutre) - Croix bleue
+        self.ax.plot(drone.neutral_point_x, 0, marker='x', color='blue', markersize=10, 
+                     markeredgewidth=2, label='Foyer (Point Neutre)')
+                     
+        # 5. Dessin du Centre de Gravité (CG) - Symbole classique de centrage noir et blanc
+        self.ax.plot(drone.cg_x, 0, marker='o', color='black', markerfacecolor='white', 
+                     markersize=12, markeredgewidth=2, label='Centre de Gravité (CG)')
 
         # Mise en forme finale
         self.ax.axis('equal') # Force les proportions réelles
