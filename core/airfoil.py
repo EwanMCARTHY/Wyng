@@ -41,8 +41,13 @@ class AirfoilDatabase:
         """Retourne l'objet Airfoil correspondant au nom."""
         return self.airfoils.get(name)
 
-    def list_airfoils(self) -> list:
-        """Retourne la liste des noms des profils disponibles."""
+    def list_airfoils(self, require_autostable: bool = False) -> list:
+        """
+        Renvoie la liste des noms de profils disponibles.
+        Si require_autostable est True, ne renvoie que les profils avec un Cm0 >= 0.
+        """
+        if require_autostable:
+            return [name for name, profile in self.airfoils.items() if profile.cm_0 >= 0]
         return list(self.airfoils.keys())
 
 # --- Test rapide ---

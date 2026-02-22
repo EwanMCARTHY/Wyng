@@ -49,7 +49,7 @@ class WyngWindow(QMainWindow):
         
         self.tail_combo = QComboBox()
         self.tail_combo.addItems(["Classique", "Empennage en V", "Aile Volante"])
-        self.tail_combo.currentTextChanged.connect(self.calculate_geometry)
+        self.tail_combo.currentTextChanged.connect(self._on_tail_changed)
         input_layout.addWidget(QLabel("Architecture Empennage :"))
         input_layout.addWidget(self.tail_combo)
         
@@ -155,6 +155,30 @@ class WyngWindow(QMainWindow):
         main_layout.addLayout(right_layout, 3)
 
         # On lance un premier calcul au démarrage pour éviter un écran blanc
+        self.calculate_geometry()
+    
+    def _on_tail_changed(self):
+        """Met à jour la liste des profils autorisés selon l'architecture choisie."""
+        is_flying_wing = (self.tail_combo.currentText() == "Aile Volante")
+        
+        # On sauvegarde le profil actuellement sélectionné pour essayer de le garder
+        current_airfoil = self.airfoil_combo.currentText()
+        
+        # On bloque temporairement les signaux pour éviter que le nettoyage de la liste 
+        # ne déclenche calculate_geometry() dans le vide et fasse crasher le programme
+        self.airfoil_combo.blockSignals(True)
+        
+        self.airfoil_combo.clear()
+        valid_airfoils = self.db.list_airfoils(require_autostable=is_flying_wing)
+        self.airfoil_combo.addItems(valid_airfoils)
+        
+        # Si l'ancien profil est toujours valide, on le remet. Sinon, on prend le premier de la liste.
+        if current_airfoil in valid_airfoils:
+            self.airfoil_combo.setCurrentText(current_airfoil)
+            
+        self.airfoil_combo.blockSignals(False)
+        
+        # On lance le calcul géométrique avec la nouvelle architecture
         self.calculate_geometry()
 
     def calculate_geometry(self):
