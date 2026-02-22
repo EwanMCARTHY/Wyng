@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QLineEdit, QComboBox, QPushButton, QTextEdit)
+                             QLabel, QLineEdit, QComboBox, QPushButton, QTextEdit,
+                             QFileDialog, QMessageBox)
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from core.airfoil import AirfoilDatabase
@@ -38,6 +39,11 @@ class WyngWindow(QMainWindow):
         self.calc_button = QPushButton("Calculer la géométrie")
         self.calc_button.clicked.connect(self.calculate_geometry)
         input_layout.addWidget(self.calc_button)
+        
+        self.export_button = QPushButton("Exporter les résultats")
+        self.export_button.clicked.connect(self.export_results)
+        self.export_button.setEnabled(False) # Désactivé au lancement
+        input_layout.addWidget(self.export_button)
         
         input_layout.addStretch()
         
@@ -89,6 +95,8 @@ class WyngWindow(QMainWindow):
             
             # Déclenchement du dessin 2D
             self._draw_drone(drone)
+            
+            self.export_button.setEnabled(True)
 
         except ValueError:
             self.result_text.setText("⚠️ Veuillez entrer des valeurs numériques valides.")
@@ -132,3 +140,26 @@ class WyngWindow(QMainWindow):
         
         # Rafraîchissement du canevas
         self.canvas.draw()
+    
+    def export_results(self):
+        """Sauvegarde les résultats en format .txt et le schéma en .png."""
+        # Ouvre une fenêtre de dialogue système pour choisir où enregistrer
+        file_path, _ = QFileDialog.getSaveFileName(self, "Exporter la note de calcul", "Wyng_Design", "Fichier Texte (*.txt)")
+        
+        if file_path:
+            try:
+                # 1. Sauvegarde du texte
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(self.result_text.toPlainText())
+                
+                # 2. Sauvegarde du schéma Matplotlib
+                # On remplace l'extension .txt par .png pour l'image
+                image_path = file_path.replace('.txt', '.png')
+                self.figure.savefig(image_path, dpi=300, bbox_inches='tight')
+                
+                # Confirmation utilisateur
+                QMessageBox.information(self, "Export Réussi", 
+                                        f"La note de calcul a été sauvegardée.\n\nTexte : {file_path}\nImage : {image_path}")
+            
+            except Exception as e:
+                QMessageBox.critical(self, "Erreur d'export", f"Impossible de sauvegarder les fichiers :\n{str(e)}")

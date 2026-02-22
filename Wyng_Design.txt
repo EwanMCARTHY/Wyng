@@ -1,0 +1,6 @@
+=== DIMENSIONNEMENT WYNG ===
+Masse : 2.5 kg | Vitesse décrochage : 10.0 m/s | Profil : Clark Y
+Surface requise : 0.308 m²
+------------------------------
+AILE : Env=1.57m, Corde Emp=0.25m, Corde Saum=0.15m
+EMPENNAGE : Env=0.35m, Corde Emp=0.10m
