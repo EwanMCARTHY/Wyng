@@ -8,7 +8,7 @@ if __name__ == "__main__":
     
     # Crée et affiche la fenêtre principale
     window = WyngWindow()
-    window.show()
+    window.showMaximized()
     
     # Lance la boucle d'événements de l'application
     sys.exit(app.exec())

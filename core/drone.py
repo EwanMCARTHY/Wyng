@@ -4,7 +4,8 @@ from core.airfoil import Airfoil, AirfoilDatabase
 class Drone:
     def __init__(self, mass: float, v_stall: float, v_cruise: float, airfoil: Airfoil, 
                  aspect_ratio: float = 8.0, taper_ratio: float = 0.6,
-                 sweep_angle: float = 0.0, # <-- Nouveau paramètre
+                 sweep_angle: float = 0.0,
+                 nose_length: float = 0.2,
                  tail_arm: float = 1.0, vh: float = 0.5, vv: float = 0.04):
         
         """
@@ -19,6 +20,7 @@ class Drone:
         self.v_cruise = v_cruise
         self.airfoil = airfoil
         self.tail_arm = tail_arm
+        self.nose_length = nose_length
         self.vh = vh
         self.vv = vv
         

@@ -1,6 +1,7 @@
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QComboBox, QPushButton, QTextEdit,
-                             QFileDialog, QMessageBox)
+                             QFileDialog, QMessageBox, QSlider)
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from core.airfoil import AirfoilDatabase
@@ -10,7 +11,7 @@ class WyngWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Wyng - Dimensionnement Aérodynamique")
-        self.resize(1000, 700) # Fenêtre un peu plus grande pour le schéma
+        self.setMinimumSize(1000, 700)
         
         self.db = AirfoilDatabase()
         self._setup_ui()
@@ -23,103 +24,124 @@ class WyngWindow(QMainWindow):
         # --- Panneau Gauche : Entrées ---
         input_layout = QVBoxLayout()
         
+        # Entrées textuelles (pour les valeurs absolues)
         self.mass_input = QLineEdit("2.5")
         input_layout.addWidget(QLabel("Masse cible (kg) :"))
         input_layout.addWidget(self.mass_input)
         
         self.vstall_input = QLineEdit("10.0")
-        input_layout.addWidget(QLabel("Vitesse de décrochage (m/s) :"))
+        input_layout.addWidget(QLabel("Vitesse décrochage (m/s) :"))
         input_layout.addWidget(self.vstall_input)
         
         self.vcruise_input = QLineEdit("15.0")
-        input_layout.addWidget(QLabel("Vitesse de croisière (m/s) :"))
+        input_layout.addWidget(QLabel("Vitesse croisière (m/s) :"))
         input_layout.addWidget(self.vcruise_input)
-        
-        self.sweep_input = QLineEdit("15.0") # Flèche de 15 degrés par défaut
-        input_layout.addWidget(QLabel("Angle de flèche (°) :"))
-        input_layout.addWidget(self.sweep_input)
-        
-        self.tailarm_input = QLineEdit("1.0") # 1 mètre par défaut
-        input_layout.addWidget(QLabel("Bras de levier empennage (m) :"))
-        input_layout.addWidget(self.tailarm_input)
         
         self.airfoil_combo = QComboBox()
         self.airfoil_combo.addItems(self.db.list_airfoils())
+        self.airfoil_combo.currentTextChanged.connect(self.calculate_geometry) # MàJ auto si on change de profil
         input_layout.addWidget(QLabel("Profil de l'aile :"))
         input_layout.addWidget(self.airfoil_combo)
         
-        self.calc_button = QPushButton("Calculer la géométrie")
-        self.calc_button.clicked.connect(self.calculate_geometry)
-        input_layout.addWidget(self.calc_button)
+        # --- NOUVEAU : Les Sliders Géométriques ---
         
+        # 1. Slider : Angle de flèche (0 à 45°)
+        self.sweep_label = QLabel("Angle de flèche : 0.0 °")
+        self.sweep_slider = QSlider(Qt.Orientation.Horizontal)
+        self.sweep_slider.setRange(0, 450) # 0 à 45.0° (multiplié par 10)
+        self.sweep_slider.setValue(0)
+        self.sweep_slider.valueChanged.connect(self.calculate_geometry) # Déclenche le calcul en direct !
+        input_layout.addWidget(self.sweep_label)
+        input_layout.addWidget(self.sweep_slider)
+
+        # 2. Slider : Bras de levier (0.3m à 2.5m)
+        self.tailarm_label = QLabel("Bras de levier empennage : 1.0 m")
+        self.tailarm_slider = QSlider(Qt.Orientation.Horizontal)
+        self.tailarm_slider.setRange(30, 250) # 0.3m à 2.5m
+        self.tailarm_slider.setValue(100)
+        self.tailarm_slider.valueChanged.connect(self.calculate_geometry)
+        input_layout.addWidget(self.tailarm_label)
+        input_layout.addWidget(self.tailarm_slider)
+
+        # 3. Slider : Longueur du Nez (0.0m à 1.0m)
+        self.nose_label = QLabel("Longueur du nez : 0.2 m")
+        self.nose_slider = QSlider(Qt.Orientation.Horizontal)
+        self.nose_slider.setRange(0, 100) # 0.0m à 1.0m
+        self.nose_slider.setValue(20)
+        self.nose_slider.valueChanged.connect(self.calculate_geometry)
+        input_layout.addWidget(self.nose_label)
+        input_layout.addWidget(self.nose_slider)
+        
+        # Bouton d'export (Le bouton Calculer disparait, c'est automatique maintenant !)
         self.export_button = QPushButton("Exporter les résultats")
         self.export_button.clicked.connect(self.export_results)
-        self.export_button.setEnabled(False) # Désactivé au lancement
+        self.export_button.setEnabled(False)
         input_layout.addWidget(self.export_button)
         
         input_layout.addStretch()
         
         # --- Panneau Droit : Résultats et Schéma ---
         right_layout = QVBoxLayout()
-        
-        # 1. Zone de texte (limitée en hauteur)
         self.result_text = QTextEdit()
         self.result_text.setReadOnly(True)
-        self.result_text.setMaximumHeight(200) 
-        self.result_text.setPlaceholderText("Les résultats s'afficheront ici...")
+        self.result_text.setMaximumHeight(150) 
         right_layout.addWidget(self.result_text)
         
-        # 2. Canevas Matplotlib pour le schéma
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+        from matplotlib.figure import Figure
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
         self.ax = self.figure.add_subplot(111)
-        self.ax.set_title("Vue de dessus de la géométrie")
-        self.ax.axis('equal') # Indispensable pour ne pas déformer le drone
         right_layout.addWidget(self.canvas)
         
-        # Assemblage
         main_layout.addLayout(input_layout, 1) 
-        main_layout.addLayout(right_layout, 2) 
+        main_layout.addLayout(right_layout, 3) # J'ai augmenté la place pour le dessin
+
+        # On lance un premier calcul au démarrage pour éviter un écran blanc
+        self.calculate_geometry()
 
     def calculate_geometry(self):
         try:
+            # Récupération des textes
             mass = float(self.mass_input.text().replace(',', '.'))
             v_stall = float(self.vstall_input.text().replace(',', '.'))
             v_cruise = float(self.vcruise_input.text().replace(',', '.'))
-            sweep = float(self.sweep_input.text().replace(',', '.'))
-            tail_arm = float(self.tailarm_input.text().replace(',', '.'))
-            airfoil_name = self.airfoil_combo.currentText()
             
+            # Récupération des sliders (on divise par 10)
+            sweep = self.sweep_slider.value() / 10.0
+            tail_arm = self.tailarm_slider.value() / 100.0 if self.tailarm_slider.maximum() > 450 else self.tailarm_slider.value() / 100.0 # correction d'échelle
+            tail_arm = self.tailarm_slider.value() / 100.0 # On divise par 100 pour être précis au cm
+            nose = self.nose_slider.value() / 100.0
+            
+            # Mise à jour des labels au dessus des sliders
+            self.sweep_label.setText(f"Angle de flèche : {sweep:.1f} °")
+            self.tailarm_label.setText(f"Bras de levier empennage : {tail_arm:.2f} m")
+            self.nose_label.setText(f"Longueur du nez : {nose:.2f} m")
+            
+            airfoil_name = self.airfoil_combo.currentText()
             selected_airfoil = self.db.get_airfoil(airfoil_name)
-            if not selected_airfoil:
-                self.result_text.setText("Erreur : Profil introuvable.")
-                return
+            if not selected_airfoil: return
 
-            # Calcul physique
+            # Instanciation
             drone = Drone(mass=mass, v_stall=v_stall, v_cruise=v_cruise, 
-                          airfoil=selected_airfoil, sweep_angle=sweep, tail_arm=tail_arm)
+                          airfoil=selected_airfoil, sweep_angle=sweep, tail_arm=tail_arm, nose_length=nose)
 
-            # Affichage texte
+            # --- Reste du code d'affichage inchangé ---
+            longueur_totale = nose + drone.main_wing.root_chord + tail_arm
+            
             results = f"=== DIMENSIONNEMENT WYNG ===\n"
-            results += f"Masse : {mass} kg | Vitesse décrochage : {v_stall} m/s | Profil : {selected_airfoil.name}\n"
+            results += f"Masse : {mass} kg | Vitesse croisière : {v_cruise} m/s | Profil : {selected_airfoil.name}\n"
             results += f"Surface requise : {drone.required_surface:.3f} m²\n"
             results += "-" * 30 + "\n"
-            results += f"AILE : Env={drone.main_wing.span:.2f}m, Corde Emp={drone.main_wing.root_chord:.2f}m, Corde Saum={drone.main_wing.tip_chord:.2f}m\n"
-            results += f"EMPENNAGE : Env={drone.h_tail.span:.2f}m, Corde Emp={drone.h_tail.root_chord:.2f}m\n"
-            longueur_totale = tail_arm + drone.main_wing.root_chord + 0.2 # 0.2m forfaitaire pour le nez
-            results += f"CORPS : Longueur totale estimée = {longueur_totale:.2f}m\n"
-            results += f"AILE : Env={drone.main_wing.span:.2f}m, Corde Emp={drone.main_wing.root_chord:.2f}m\n"
-            results += f"       Calage requis : {drone.wing_incidence:.1f}° (Pour V={v_cruise} m/s)\n"
+            results += f"AILE : Env={drone.main_wing.span:.2f}m, Corde={drone.main_wing.root_chord:.2f}m | Calage : {drone.wing_incidence:.1f}°\n"
+            results += f"CORPS : Longueur totale = {longueur_totale:.2f}m\n"
             
             self.result_text.setText(results)
-            
-            # Déclenchement du dessin 2D
-            self._draw_drone(drone)
-            
             self.export_button.setEnabled(True)
+            self._draw_drone(drone)
 
         except ValueError:
-            self.result_text.setText("⚠️ Veuillez entrer des valeurs numériques valides.")
+            self.result_text.setText("⚠️ Veuillez entrer des valeurs numériques valides pour la masse et les vitesses.")
 
     def _draw_drone(self, drone):
         """Trace la géométrie du drone en vue de dessus."""
@@ -152,7 +174,7 @@ class WyngWindow(QMainWindow):
         self.ax.fill(x_htail, y_htail, color='lightcoral', edgecolor='red', alpha=0.6, label='Empennage Horizontal')
 
         # 3. Dessin du fuselage (Ligne indicative)
-        self.ax.plot([-0.2, arm + hcr], [0, 0], color='black', linewidth=3, linestyle='-.', label='Fuselage')
+        self.ax.plot([-drone.nose_length, arm + hcr], [0, 0], color='black', linewidth=3, linestyle='-.', label='Fuselage')
     
         # 4. Dessin du Foyer global (Point Neutre) - Croix bleue
         self.ax.plot(drone.neutral_point_x, 0, marker='x', color='blue', markersize=10, 
