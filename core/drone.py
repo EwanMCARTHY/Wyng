@@ -1,47 +1,73 @@
 from core.wing import Wing
+from core.airfoil import Airfoil, AirfoilDatabase
 
 class Drone:
-    def __init__(self, mass: float, v_stall: float, cl_max: float = 1.2, aspect_ratio: float = 8.0, taper_ratio: float = 0.6):
+    def __init__(self, mass: float, v_stall: float, airfoil: Airfoil, 
+                 aspect_ratio: float = 8.0, taper_ratio: float = 0.6,
+                 tail_arm: float = 1.0, vh: float = 0.5, vv: float = 0.04):
         """
-        Initialise le drone complet.
-        mass: Masse totale en kg
-        v_stall: Vitesse de décrochage cible en m/s
-        cl_max: Coefficient de portance maximal estimé de l'aile
-        aspect_ratio: Allongement cible
-        taper_ratio: Effilement cible
+        Initialise le drone complet avec son aile et ses empennages.
+        tail_arm: Bras de levier de l'empennage en mètres (distance aile-queue)
+        vh: Coefficient de volume d'empennage horizontal
+        vv: Coefficient de volume d'empennage vertical
         """
         self.mass = mass
         self.v_stall = v_stall
-        self.cl_max = cl_max
+        self.airfoil = airfoil
+        self.tail_arm = tail_arm
+        self.vh = vh
+        self.vv = vv
         
-        # Constantes (Atmosphère standard au niveau de la mer)
-        self.rho = 1.225  # Densité de l'air (kg/m^3)
-        self.g = 9.81     # Accélération de la pesanteur (m/s^2)
+        self.rho = 1.225  
+        self.g = 9.81     
         
-        # 1. Calcul de la surface requise
+        # 1. Dimensionnement de l'aile principale
         self.required_surface = self._calculate_required_surface()
-        
-        # 2. Création automatique de l'aile principale
         self.main_wing = Wing(
             surface=self.required_surface, 
             aspect_ratio=aspect_ratio, 
             taper_ratio=taper_ratio
         )
+        
+        # 2. Dimensionnement des empennages
+        self._calculate_tails()
 
     def _calculate_required_surface(self) -> float:
-        """Calcule la surface alaire minimale (S) requise au décrochage."""
+        """Calcule la surface alaire minimale requise au décrochage."""
         weight = self.mass * self.g
         dynamic_pressure = 0.5 * self.rho * (self.v_stall ** 2)
-        surface = weight / (dynamic_pressure * self.cl_max)
+        surface = weight / (dynamic_pressure * self.airfoil.cl_max)
         return surface
+
+    def _calculate_tails(self):
+        """Calcule et instancie les empennages horizontal et vertical."""
+        # Surface empennage horizontal (SH)
+        sh_surface = (self.vh * self.main_wing.surface * self.main_wing.mean_aerodynamic_chord) / self.tail_arm
+        # On instancie une nouvelle "Wing" pour l'empennage (allongement plus faible, ex: 4.0)
+        self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7)
+
+        # Surface dérive verticale (SV)
+        sv_surface = (self.vv * self.main_wing.surface * self.main_wing.span) / self.tail_arm
+        # On instancie une nouvelle "Wing" pour la dérive (allongement très faible, ex: 1.5)
+        self.v_tail = Wing(surface=sv_surface, aspect_ratio=1.5, taper_ratio=0.8)
+
 
 # --- Test rapide ---
 if __name__ == "__main__":
-    # Exemple : Drone de 2.5 kg, décrochage à 10 m/s (36 km/h)
-    my_drone = Drone(mass=2.5, v_stall=10.0, aspect_ratio=10)
+    db = AirfoilDatabase()
+    selected_airfoil = db.get_airfoil("Selig 1223")
     
-    print(f"--- Dimensionnement Wyng : Drone de {my_drone.mass} kg ---")
-    print(f"Surface alaire requise : {round(my_drone.required_surface, 3)} m2")
-    print("\n--- Géométrie de l'aile générée ---")
-    for key, value in my_drone.main_wing.get_summary().items():
-        print(f"{key}: {value}")
+    if selected_airfoil:
+        # On ajoute un bras de levier de 0.8 mètres (distance entre l'aile et la queue)
+        my_drone = Drone(mass=2.5, v_stall=10.0, airfoil=selected_airfoil, aspect_ratio=10, tail_arm=0.8)
+        
+        print(f"--- Dimensionnement Wyng : Drone de {my_drone.mass} kg ---")
+        print(f"Surface alaire requise : {round(my_drone.required_surface, 3)} m2")
+        
+        print("\n--- Empennage Horizontal ---")
+        for key, value in my_drone.h_tail.get_summary().items():
+            print(f"{key}: {value}")
+            
+        print("\n--- Empennage Vertical (Dérive) ---")
+        for key, value in my_drone.v_tail.get_summary().items():
+            print(f"{key}: {value}")
