@@ -8,7 +8,8 @@ class Drone:
                  dihedral_angle: float = 0.0,
                  nose_length: float = 0.2,
                  tail_arm: float = 1.0, vh: float = 0.5, vv: float = 0.04,
-                 tail_type: str = "Classique"):
+                 tail_type: str = "Classique",
+                 h_tail_sweep: float = 0.0):
         
         """
         Initialise le drone complet avec son aile et ses empennages.
@@ -22,6 +23,7 @@ class Drone:
         self.v_cruise = v_cruise
         self.airfoil = airfoil
         self.tail_arm = tail_arm
+        self.h_tail_sweep = h_tail_sweep
         self.nose_length = nose_length
         self.vh = vh
         self.vv = vv
@@ -68,15 +70,16 @@ class Drone:
         sv_surface = (self.vv * self.main_wing.surface * self.main_wing.span) / self.tail_arm
 
         if self.tail_type == "Classique":
-            self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7)
+            self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7, sweep_angle_deg=self.h_tail_sweep)
             self.v_tail = Wing(surface=sv_surface, aspect_ratio=1.5, taper_ratio=0.8)
             self.v_angle = 0.0
             
         elif self.tail_type == "Empennage en V":
             vtail_surface = sh_surface + sv_surface
             self.v_angle = math.degrees(math.atan(math.sqrt(sv_surface / sh_surface)))
-            self.v_tail_obj = Wing(surface=vtail_surface, aspect_ratio=4.0, taper_ratio=0.7)
-            self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7)
+            
+            self.v_tail_obj = Wing(surface=vtail_surface, aspect_ratio=4.0, taper_ratio=0.7, sweep_angle_deg=self.h_tail_sweep)
+            self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7, sweep_angle_deg=self.h_tail_sweep)
             self.v_tail = None
     
     def _calculate_cg_and_stability(self, static_margin: float = 0.15):

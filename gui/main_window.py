@@ -1,4 +1,5 @@
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QComboBox, QPushButton, QTextEdit,
                              QFileDialog, QMessageBox, QSlider,
@@ -13,6 +14,7 @@ class WyngWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Wyng - Dimensionnement Aérodynamique")
         self.setMinimumSize(1000, 700)
+        self.setWindowIcon(QIcon('wing.ico'))
         
         self.db = AirfoilDatabase()
         self._setup_ui()
@@ -78,6 +80,14 @@ class WyngWindow(QMainWindow):
         self.tailarm_slider.valueChanged.connect(self.calculate_geometry)
         input_layout.addWidget(self.tailarm_label)
         input_layout.addWidget(self.tailarm_slider)
+        
+        self.htail_sweep_label = QLabel("Flèche empennage : 0.0 °")
+        self.htail_sweep_slider = QSlider(Qt.Orientation.Horizontal)
+        self.htail_sweep_slider.setRange(0, 450) # 0 à 45.0°
+        self.htail_sweep_slider.setValue(0)
+        self.htail_sweep_slider.valueChanged.connect(self.calculate_geometry)
+        input_layout.addWidget(self.htail_sweep_label)
+        input_layout.addWidget(self.htail_sweep_slider)
 
         # 3. Slider : Longueur du Nez (0.0m à 1.0m)
         self.nose_label = QLabel("Longueur du nez : 0.2 m")
@@ -211,6 +221,7 @@ class WyngWindow(QMainWindow):
             tail_arm = self.tailarm_slider.value() / 100.0
             nose = self.nose_slider.value() / 100.0
             dihedral = self.dihedral_slider.value() / 10.0
+            h_sweep = self.htail_sweep_slider.value() / 10.0
             
             tail_type = self.tail_combo.currentText()
             
@@ -218,12 +229,15 @@ class WyngWindow(QMainWindow):
             is_flying_wing = (tail_type == "Aile Volante")
             self.tailarm_label.setVisible(not is_flying_wing)
             self.tailarm_slider.setVisible(not is_flying_wing)
+            self.htail_sweep_label.setVisible(not is_flying_wing)
+            self.htail_sweep_slider.setVisible(not is_flying_wing)
             
             # Mise à jour des labels des sliders
             self.sweep_label.setText(f"Angle de flèche : {sweep:.1f} °")
             self.dihedral_label.setText(f"Angle de dièdre : {dihedral:.1f} °")
             self.tailarm_label.setText(f"Bras de levier empennage : {tail_arm:.2f} m")
             self.nose_label.setText(f"Longueur du nez : {nose:.2f} m")
+            self.htail_sweep_label.setText(f"Flèche empennage : {h_sweep:.1f} °")
             
             airfoil_name = self.airfoil_combo.currentText()
             selected_airfoil = self.db.get_airfoil(airfoil_name)
@@ -233,8 +247,9 @@ class WyngWindow(QMainWindow):
             # 4. Instanciation du Modèle (Calculs physiques)
             drone = Drone(mass=mass, v_stall=v_stall, v_cruise=v_cruise, 
                           airfoil=selected_airfoil, sweep_angle=sweep, 
-                          dihedral_angle=dihedral,
-                          tail_arm=tail_arm, nose_length=nose, tail_type=tail_type)
+                          dihedral_angle=dihedral, tail_arm=tail_arm, 
+                          nose_length=nose, tail_type=tail_type,
+                          h_tail_sweep=h_sweep)
 
             # 5. Mise à jour de l'interface graphique (Tableau de bord)
             self.lbl_surface.setText(f"{drone.required_surface:.3f} m²")
@@ -310,8 +325,9 @@ class WyngWindow(QMainWindow):
             hb2 = drone.h_tail.span / 2
             hcr = drone.h_tail.root_chord
             hct = drone.h_tail.tip_chord
+            h_offset = drone.h_tail.tip_offset_x
             
-            x_htail = [arm, arm, arm+hct, arm+hcr, arm+hct, arm]
+            x_htail = [arm, arm + h_offset, arm + h_offset + hct, arm + hcr, arm + h_offset + hct, arm + h_offset]
             y_htail = [0, hb2, hb2, 0, -hb2, -hb2]
             
             if drone.tail_type == "Classique":

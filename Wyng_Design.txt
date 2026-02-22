@@ -1,8 +1,0 @@
-=== DIMENSIONNEMENT WYNG ===
-Masse : 2.5 kg | Vitesse croisière : 15.0 m/s | Profil : MH 45
-Surface requise : 0.445 m²
-------------------------------
-AILE : Env=1.89m, Corde=0.29m | Calage : 4.1°
-EMPENNAGE : Aucun (Aile Volante pure)
-CORPS : Longueur totale = 0.47m
-CORPS : Longueur totale = 1.47m
