@@ -2,49 +2,39 @@ from core.wing import Wing
 from core.airfoil import Airfoil, AirfoilDatabase
 
 class Drone:
-    def __init__(self, mass: float, v_stall: float, v_cruise: float, airfoil: Airfoil, 
+    def __init__(self, mass: float, v_stall: float, v_cruise: float, airfoil: Airfoil,
                  aspect_ratio: float = 8.0, taper_ratio: float = 0.6,
-                 sweep_angle: float = 0.0,
-                 dihedral_angle: float = 0.0,
-                 nose_length: float = 0.2,
+                 sweep_angle: float = 0.0, dihedral_angle: float = 0.0,
                  tail_arm: float = 1.0, vh: float = 0.5, vv: float = 0.04,
-                 tail_type: str = "Classique",
-                 h_tail_sweep: float = 0.0,
-                 wing_shape: str = "Trapézoïdale"):
-        
-        """
-        Initialise le drone complet avec son aile et ses empennages.
-        tail_arm: Bras de levier de l'empennage en mètres (distance aile-queue)
-        vh: Coefficient de volume d'empennage horizontal
-        vv: Coefficient de volume d'empennage vertical
-        """
+                 nose_length: float = 0.2, tail_type: str = "Classique",
+                 h_tail_sweep: float = 0.0, wing_shape: str = "Trapézoïdale",
+                 washout: float = 0.0, kink_pos: float = 0.45, kink_angle: float = -30.0,
+                 has_winglets: bool = False):
         
         self.mass = mass
+        self.g = 9.81
+        self.rho = 1.225
         self.v_stall = v_stall
         self.v_cruise = v_cruise
         self.airfoil = airfoil
+        
         self.tail_arm = tail_arm
-        self.h_tail_sweep = h_tail_sweep
-        self.nose_length = nose_length
         self.vh = vh
         self.vv = vv
+        self.nose_length = nose_length
         self.tail_type = tail_type
-        self.dihedral_angle = dihedral_angle
+        self.h_tail_sweep = h_tail_sweep
         self.wing_shape = wing_shape
-        
-        self.rho = 1.225  
-        self.g = 9.81     
         
         self.required_surface = self._calculate_required_surface()
         
-        # On transmet l'angle de flèche à l'aile
         self.main_wing = Wing(
             surface=self.required_surface, 
-            aspect_ratio=aspect_ratio, 
-            taper_ratio=taper_ratio,
-            sweep_angle_deg=sweep_angle,
-            dihedral_angle_deg=dihedral_angle,
-            wing_shape=wing_shape
+            aspect_ratio=aspect_ratio, taper_ratio=taper_ratio,
+            sweep_angle_deg=sweep_angle, dihedral_angle_deg=dihedral_angle,
+            wing_shape=wing_shape, washout_deg=washout,
+            kink_pos_ratio=kink_pos, kink_angle_deg=kink_angle,
+            has_winglets=has_winglets
         )
         
         self._calculate_tails()
@@ -52,27 +42,23 @@ class Drone:
         self._calculate_incidence()
 
     def _calculate_required_surface(self) -> float:
-        """Calcule la surface alaire minimale requise au décrochage."""
         weight = self.mass * self.g
-        dynamic_pressure = 0.5 * self.rho * (self.v_stall ** 2)
-        surface = weight / (dynamic_pressure * self.airfoil.cl_max)
-        return surface
+        dynamic_pressure_stall = 0.5 * self.rho * (self.v_stall ** 2)
+        return weight / (dynamic_pressure_stall * self.airfoil.cl_max)
 
     def _calculate_tails(self):
         import math
-        
         if self.tail_type == "Aile Volante":
-            # Pas d'empennage, la machine est réduite à son aile
             self.h_tail = None
             self.v_tail = None
             self.v_tail_obj = None
             self.v_angle = 0.0
-            return # On sort de la fonction
+            return
 
         sh_surface = (self.vh * self.main_wing.surface * self.main_wing.mean_aerodynamic_chord) / self.tail_arm
         sv_surface = (self.vv * self.main_wing.surface * self.main_wing.span) / self.tail_arm
 
-        if self.tail_type == "Classique":
+        if self.tail_type in ["Classique", "Empennage en T"]:
             self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7, sweep_angle_deg=self.h_tail_sweep)
             self.v_tail = Wing(surface=sv_surface, aspect_ratio=1.5, taper_ratio=0.8)
             self.v_angle = 0.0
@@ -80,7 +66,6 @@ class Drone:
         elif self.tail_type == "Empennage en V":
             vtail_surface = sh_surface + sv_surface
             self.v_angle = math.degrees(math.atan(math.sqrt(sv_surface / sh_surface)))
-            
             self.v_tail_obj = Wing(surface=vtail_surface, aspect_ratio=4.0, taper_ratio=0.7, sweep_angle_deg=self.h_tail_sweep)
             self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7, sweep_angle_deg=self.h_tail_sweep)
             self.v_tail = None
