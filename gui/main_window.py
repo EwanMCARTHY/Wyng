@@ -377,7 +377,61 @@ class WyngWindow(QMainWindow):
             self.lbl_np.setText(f"{drone.neutral_point_x:.3f} m")
             self.lbl_cg.setText(f"{drone.cg_x:.3f} m")
 
-            self.export_text = "=== DIMENSIONNEMENT WYNG ===\n(Export en cours de développement...)"
+            # --- GÉNÉRATION DE LA NOTE DE CALCUL (EXPORT TEXTE) ---
+            unit_str = self.speed_unit_combo.currentText()
+            v_stall_display = self.vstall_input.text()
+            v_cruise_display = self.vcruise_input.text()
+            
+            export_str = "=========================================\n"
+            export_str += "       NOTE DE CALCUL - WYNG V1.0        \n"
+            export_str += "   Conçu par : Ewan Mac-Carthy (ENSAM)   \n"
+            export_str += "=========================================\n\n"
+            
+            export_str += "[ PARAMÈTRES GLOBAUX ]\n"
+            export_str += f"Masse cible         : {mass} kg\n"
+            export_str += f"Vitesse décrochage  : {v_stall_display} {unit_str}\n"
+            export_str += f"Vitesse croisière   : {v_cruise_display} {unit_str}\n"
+            export_str += f"Profil aérodynamique: {selected_airfoil.name} (Cz_max = {selected_airfoil.cl_max})\n"
+            export_str += f"Surface requise     : {drone.required_surface:.3f} m²\n\n"
+            
+            export_str += "[ AILE PRINCIPALE ]\n"
+            for key, value in drone.main_wing.get_summary().items():
+                export_str += f"- {key:<18}: {value}\n"
+            export_str += f"- Calage requis     : {drone.wing_incidence:.1f} °\n\n"
+            
+            export_str += "[ EMPENNAGE ]\n"
+            export_str += f"- Architecture      : {tail_type}\n"
+            if tail_type in ["Classique", "Empennage en T"]:
+                export_str += "  > Horizontal :\n"
+                for key, value in drone.h_tail.get_summary().items():
+                    export_str += f"    * {key:<14}: {value}\n"
+                export_str += "  > Vertical :\n"
+                for key, value in drone.v_tail.get_summary().items():
+                    export_str += f"    * {key:<14}: {value}\n"
+            elif tail_type == "Empennage en V":
+                export_str += f"  > Angle d'ouverture : {drone.v_angle:.1f} °\n"
+                for key, value in drone.v_tail_obj.get_summary().items():
+                    export_str += f"    * {key:<14}: {value}\n"
+            elif tail_type == "Aile Volante":
+                export_str += "  > Aucun empennage généré.\n"
+            export_str += "\n"
+            
+            export_str += "[ CORPS & STABILITÉ ]\n"
+            export_str += f"- Longueur totale   : {longueur_totale:.2f} m\n"
+            if not is_flying_wing:
+                export_str += f"- Bras de levier    : {tail_arm:.2f} m\n"
+                export_str += f"- Volume (Vh)       : {vh:.3f}\n"
+                export_str += f"- Volume (Vv)       : {vv:.3f}\n"
+            export_str += f"- Foyer (X_NP)      : {drone.neutral_point_x:.3f} m\n"
+            export_str += f"- Centre Grav. (X_CG): {drone.cg_x:.3f} m\n"
+            
+            if is_flying_wing and selected_airfoil.cm_0 < 0:
+                export_str += "\n!!! ALERTE DE SÉCURITÉ !!!\n"
+                export_str += "Le profil choisi possède un Cm0 piqueur.\n"
+                export_str += "L'aile volante sera instable en tangage sans un fort vrillage négatif.\n"
+                
+            self.export_text = export_str
+            # ------------------------------------------------------
             self.export_button.setEnabled(True)
             self._draw_drone(drone)
 
