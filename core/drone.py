@@ -40,6 +40,7 @@ class Drone:
         self._calculate_tails()
         self._calculate_cg_and_stability()
         self._calculate_incidence()
+        self._calculate_aerodynamics()
 
     def _calculate_required_surface(self) -> float:
         weight = self.mass * self.g
@@ -98,6 +99,48 @@ class Drone:
         
         # Pente de portance standard (~0.11 par degré) et prise en compte du alpha_0 du profil
         self.wing_incidence = (cz_cruise / 0.11) + self.airfoil.alpha_0
+    
+    def _calculate_aerodynamics(self):
+        """Calcule les performances de vol estimées en régime de croisière."""
+        import math
+        
+        # 1. Coefficient de portance (Cz) requis en croisière
+        dynamic_pressure_cruise = 0.5 * self.rho * (self.v_cruise ** 2)
+        # Cz = Poids / (Pression Dynamique * Surface)
+        self.cz_cruise = (self.mass * self.g) / (dynamic_pressure_cruise * self.main_wing.surface)
+        
+        # 2. Facteur d'efficacité d'Oswald (e)
+        # Approximation empirique selon la géométrie
+        e = 0.85 # Valeur standard par défaut
+        if self.wing_shape == "Delta":
+            e = 0.70 # Les ailes Delta génèrent plus de traînée induite
+        elif self.wing_shape == "Lambda":
+            e = 0.88 # Excellente répartition de portance
+            
+        if self.main_wing.has_winglets:
+            e += 0.05 # Les winglets améliorent l'efficacité marginale
+            
+        # Sécurité mathématique
+        if e > 0.98: e = 0.98 
+        
+        # 3. Calculs des Traînées
+        # Traînée induite (Cdi)
+        cdi = (self.cz_cruise ** 2) / (math.pi * e * self.main_wing.aspect_ratio)
+        
+        # Traînée parasite (Cd0) estimée : Profil + pénalité d'intégration (fuselage, empennages)
+        integration_penalty = 0.01 
+        if self.tail_type == "Aile Volante":
+            integration_penalty = 0.003 # Très propre aérodynamiquement
+            
+        cd0 = self.airfoil.cd_0 + integration_penalty
+        
+        # 4. Bilan des performances
+        self.cd_total = cd0 + cdi
+        self.finesse = self.cz_cruise / self.cd_total if self.cd_total > 0 else 0
+        
+        # Puissance mécanique nécessaire (Force de traînée * Vitesse) en Watts
+        drag_force = dynamic_pressure_cruise * self.main_wing.surface * self.cd_total
+        self.power_required = drag_force * self.v_cruise
 
 
 # --- Test rapide ---

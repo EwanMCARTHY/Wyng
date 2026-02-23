@@ -188,11 +188,23 @@ class WyngWindow(QMainWindow):
         stab_layout.addRow("CG cible (X_CG) :", self.lbl_cg)
         stab_layout.addRow("", self.lbl_alert)
         stab_group.setLayout(stab_layout)
+        
+        perf_group = QGroupBox("Performances de Vol (Croisière)")
+        perf_layout = QFormLayout()
+        self.lbl_cz = QLabel("-")
+        self.lbl_finesse = QLabel("-")
+        self.lbl_power = QLabel("-")
+        perf_layout.addRow("Cz croisière :", self.lbl_cz)
+        perf_layout.addRow("Finesse estimée (L/D) :", self.lbl_finesse)
+        perf_layout.addRow("Puissance palier :", self.lbl_power)
+        perf_group.setLayout(perf_layout)
 
         results_layout.addWidget(wing_group, 0, 0)
         results_layout.addWidget(tail_group, 0, 1)
-        results_layout.addWidget(stab_group, 0, 2)
+        results_layout.addWidget(stab_group, 1, 0)
+        results_layout.addWidget(perf_group, 1, 1)
         self.results_box.setLayout(results_layout)
+        
         right_layout.addWidget(self.results_box)
         
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -376,6 +388,10 @@ class WyngWindow(QMainWindow):
             self.lbl_length.setText(f"{longueur_totale:.2f} m")
             self.lbl_np.setText(f"{drone.neutral_point_x:.3f} m")
             self.lbl_cg.setText(f"{drone.cg_x:.3f} m")
+
+            self.lbl_cz.setText(f"{drone.cz_cruise:.3f}")
+            self.lbl_finesse.setText(f"{drone.finesse:.1f}")
+            self.lbl_power.setText(f"{drone.power_required:.1f} W")
 
             # --- GÉNÉRATION DE LA NOTE DE CALCUL (EXPORT TEXTE) ---
             unit_str = self.speed_unit_combo.currentText()
