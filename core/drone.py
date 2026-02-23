@@ -12,7 +12,8 @@ class Drone:
                  has_winglets: bool = False,
                  m_motor: float = 0.2, x_motor: float = -0.1,
                  m_batt: float = 0.5, x_batt: float = 0.0,
-                 m_payload: float = 0.3, x_payload: float = 0.1):
+                 m_payload: float = 0.3, x_payload: float = 0.1,
+                 eta_prop: float = 0.70, eta_motor: float = 0.80):
         
         self.mass = mass
         self.g = 9.81
@@ -36,6 +37,9 @@ class Drone:
         self.m_payload = m_payload
         self.x_payload = x_payload
         
+        self.eta_prop = eta_prop
+        self.eta_motor = eta_motor
+        
         self.required_surface = self._calculate_required_surface()
         
         self.main_wing = Wing(
@@ -51,10 +55,14 @@ class Drone:
         self._calculate_cg_and_stability()
         self._calculate_actual_cg()
         self._calculate_incidence()
+        
         self.cz_cruise = 0.0
         self.cd_total = 0.0
         self.finesse = 0.0
         self.power_required = 0.0
+        self.thrust_req_g = 0.0
+        self.elec_power_req = 0.0
+        
         self._calculate_aerodynamics()
 
     def _calculate_required_surface(self) -> float:
@@ -116,46 +124,38 @@ class Drone:
         self.wing_incidence = (cz_cruise / 0.11) + self.airfoil.alpha_0
     
     def _calculate_aerodynamics(self):
-        """Calcule les performances de vol estimées en régime de croisière."""
         import math
         
-        # 1. Coefficient de portance (Cz) requis en croisière
         dynamic_pressure_cruise = 0.5 * self.rho * (self.v_cruise ** 2)
-        # Cz = Poids / (Pression Dynamique * Surface)
         self.cz_cruise = (self.mass * self.g) / (dynamic_pressure_cruise * self.main_wing.surface)
         
-        # 2. Facteur d'efficacité d'Oswald (e)
-        # Approximation empirique selon la géométrie
-        e = 0.85 # Valeur standard par défaut
+        e = 0.85
         if self.wing_shape == "Delta":
-            e = 0.70 # Les ailes Delta génèrent plus de traînée induite
+            e = 0.70
         elif self.wing_shape == "Lambda":
-            e = 0.88 # Excellente répartition de portance
+            e = 0.88
             
         if self.main_wing.has_winglets:
-            e += 0.05 # Les winglets améliorent l'efficacité marginale
+            e += 0.05
             
-        # Sécurité mathématique
         if e > 0.98: e = 0.98 
         
-        # 3. Calculs des Traînées
-        # Traînée induite (Cdi)
         cdi = (self.cz_cruise ** 2) / (math.pi * e * self.main_wing.aspect_ratio)
         
-        # Traînée parasite (Cd0) estimée : Profil + pénalité d'intégration (fuselage, empennages)
         integration_penalty = 0.01 
         if self.tail_type == "Aile Volante":
-            integration_penalty = 0.003 # Très propre aérodynamiquement
+            integration_penalty = 0.003
             
         cd0 = self.airfoil.cd_0 + integration_penalty
         
-        # 4. Bilan des performances
         self.cd_total = cd0 + cdi
         self.finesse = self.cz_cruise / self.cd_total if self.cd_total > 0 else 0
         
-        # Puissance mécanique nécessaire (Force de traînée * Vitesse) en Watts
         drag_force = dynamic_pressure_cruise * self.main_wing.surface * self.cd_total
         self.power_required = drag_force * self.v_cruise
+        
+        self.thrust_req_g = (drag_force / self.g) * 1000.0
+        self.elec_power_req = self.power_required / (self.eta_prop * self.eta_motor)
     
     def _calculate_actual_cg(self):
         """Calcule la position réelle du Centre de Gravité selon la répartition des masses."""

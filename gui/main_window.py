@@ -23,42 +23,35 @@ class WyngWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
         
-        # --- Panneau Gauche : Onglets d'Entrées ---
         self.tabs = QTabWidget()
         self.tabs.setMaximumWidth(400)
         
-        # 1. Onglet Général
         tab_general = QWidget()
         layout_general = QVBoxLayout(tab_general)
         
-        # Masse
         self.mass_input = QLineEdit("2.5")
         self.mass_input.textChanged.connect(self.calculate_geometry)
         layout_general.addWidget(QLabel("Masse cible (kg) :"))
         layout_general.addWidget(self.mass_input)
         
-        # Vitesse de décrochage (Création + Label dynamique)
         self.vstall_input = QLineEdit("10.0")
         self.vstall_input.textChanged.connect(self.calculate_geometry)
         self.lbl_vstall_title = QLabel("Vitesse décrochage (m/s) :")
         layout_general.addWidget(self.lbl_vstall_title)
         layout_general.addWidget(self.vstall_input)
         
-        # Vitesse de croisière (Création + Label dynamique)
         self.vcruise_input = QLineEdit("15.0")
         self.vcruise_input.textChanged.connect(self.calculate_geometry)
         self.lbl_vcruise_title = QLabel("Vitesse croisière (m/s) :")
         layout_general.addWidget(self.lbl_vcruise_title)
         layout_general.addWidget(self.vcruise_input)
         
-        # Sélecteur d'unité
         self.speed_unit_combo = QComboBox()
         self.speed_unit_combo.addItems(["m/s", "km/h"])
         self.speed_unit_combo.currentTextChanged.connect(self._on_unit_changed) 
         layout_general.addWidget(QLabel("Unité des vitesses :"))
         layout_general.addWidget(self.speed_unit_combo)
         
-        # Profil
         self.airfoil_combo = QComboBox()
         self.airfoil_combo.addItems(self.db.list_airfoils())
         self.airfoil_combo.currentTextChanged.connect(self.calculate_geometry)
@@ -68,7 +61,6 @@ class WyngWindow(QMainWindow):
         layout_general.addStretch()
         self.tabs.addTab(tab_general, "Général")
 
-        # 2. Onglet Aile Principale
         tab_wing = QWidget()
         layout_wing = QVBoxLayout(tab_wing)
         
@@ -78,7 +70,6 @@ class WyngWindow(QMainWindow):
         layout_wing.addWidget(QLabel("Forme de l'aile :"))
         layout_wing.addWidget(self.wing_shape_combo)
         
-        # Sliders Aile
         self.ar_label = QLabel("Allongement (AR) : 8.0")
         self.ar_slider = self._create_slider(20, 200, 80, layout_wing, self.ar_label)
         
@@ -88,15 +79,12 @@ class WyngWindow(QMainWindow):
         self.dihedral_label = QLabel("Angle de dièdre : 0.0 °")
         self.dihedral_slider = self._create_slider(0, 150, 0, layout_wing, self.dihedral_label)
         
-        # Spécifique Lambda
         self.kink_pos_label = QLabel("Position cassure : 45 %")
         self.kink_pos_slider = self._create_slider(20, 80, 45, layout_wing, self.kink_pos_label)
         
         self.kink_angle_label = QLabel("Angle de cassure (BF) : -30.0 °")
-        # Range de -60° à +60° (-600 à 600)
         self.kink_angle_slider = self._create_slider(-600, 600, -300, layout_wing, self.kink_angle_label)
         
-        # Spécifique Aile Volante
         self.washout_label = QLabel("Vrillage (Washout) : 0.0 °")
         self.washout_slider = self._create_slider(-100, 0, 0, layout_wing, self.washout_label)
         
@@ -107,7 +95,6 @@ class WyngWindow(QMainWindow):
         layout_wing.addStretch()
         self.tabs.addTab(tab_wing, "Aile")
 
-        # 3. Onglet Empennage & Corps
         tab_tail = QWidget()
         layout_tail = QVBoxLayout(tab_tail)
         
@@ -135,19 +122,16 @@ class WyngWindow(QMainWindow):
         layout_tail.addStretch()
         self.tabs.addTab(tab_tail, "Corps & Empennage")
         
-        # 4. Onglet Masses & Centrage
         tab_mass = QWidget()
         layout_mass = QVBoxLayout(tab_mass)
         
-        # Moteur
         layout_mass.addWidget(QLabel("Moteur (Masse en kg puis Position X) :"))
         self.m_motor_input = QLineEdit("0.15")
         self.m_motor_input.textChanged.connect(self.calculate_geometry)
-        layout_mass.addWidget(self.m_motor_input) # La masse en premier
+        layout_mass.addWidget(self.m_motor_input)
         self.lbl_x_motor = QLabel("Position Moteur : -0.20 m")
-        self.x_motor_slider = self._create_slider(-50, 100, -20, layout_mass, self.lbl_x_motor) # Le slider ensuite
+        self.x_motor_slider = self._create_slider(-50, 100, -20, layout_mass, self.lbl_x_motor)
         
-        # Batterie
         layout_mass.addWidget(QLabel("Batterie (Masse en kg puis Position X) :"))
         self.m_batt_input = QLineEdit("0.40")
         self.m_batt_input.textChanged.connect(self.calculate_geometry)
@@ -155,7 +139,6 @@ class WyngWindow(QMainWindow):
         self.lbl_x_batt = QLabel("Position Batterie : 0.00 m")
         self.x_batt_slider = self._create_slider(-50, 100, 0, layout_mass, self.lbl_x_batt)
         
-        # Charge Utile
         layout_mass.addWidget(QLabel("Charge Utile (Masse en kg puis Pos. X) :"))
         self.m_payload_input = QLineEdit("0.25")
         self.m_payload_input.textChanged.connect(self.calculate_geometry)
@@ -165,8 +148,19 @@ class WyngWindow(QMainWindow):
         
         layout_mass.addStretch()
         self.tabs.addTab(tab_mass, "Centrage")
+
+        tab_propulsion = QWidget()
+        layout_propulsion = QVBoxLayout(tab_propulsion)
         
-        # Panneau Gauche complet
+        self.lbl_eta_prop = QLabel("Rendement Hélice : 70 %")
+        self.eta_prop_slider = self._create_slider(40, 90, 70, layout_propulsion, self.lbl_eta_prop)
+        
+        self.lbl_eta_motor = QLabel("Rendement Moteur : 80 %")
+        self.eta_motor_slider = self._create_slider(50, 95, 80, layout_propulsion, self.lbl_eta_motor)
+        
+        layout_propulsion.addStretch()
+        self.tabs.addTab(tab_propulsion, "Propulsion")
+        
         left_layout = QVBoxLayout()
         left_layout.addWidget(self.tabs)
         
@@ -175,9 +169,7 @@ class WyngWindow(QMainWindow):
         self.export_button.setEnabled(False)
         left_layout.addWidget(self.export_button)
         
-        # --- Panneau Droit : Résultats et Schéma ---
         right_layout = QVBoxLayout()
-        
         self.results_box = QGroupBox("Paramètres Géométriques")
         results_layout = QGridLayout()
 
@@ -219,15 +211,19 @@ class WyngWindow(QMainWindow):
         stab_layout.addRow("CG cible (X_CG) :", self.lbl_cg)
         stab_layout.addRow("", self.lbl_alert)
         stab_group.setLayout(stab_layout)
-        
+
         perf_group = QGroupBox("Performances de Vol (Croisière)")
         perf_layout = QFormLayout()
         self.lbl_cz = QLabel("-")
         self.lbl_finesse = QLabel("-")
         self.lbl_power = QLabel("-")
+        self.lbl_thrust = QLabel("-")
+        self.lbl_elec_power = QLabel("-")
         perf_layout.addRow("Cz croisière :", self.lbl_cz)
         perf_layout.addRow("Finesse estimée (L/D) :", self.lbl_finesse)
-        perf_layout.addRow("Puissance palier :", self.lbl_power)
+        perf_layout.addRow("Puissance aéro. :", self.lbl_power)
+        perf_layout.addRow("Poussée requise :", self.lbl_thrust)
+        perf_layout.addRow("Puiss. électrique :", self.lbl_elec_power)
         perf_group.setLayout(perf_layout)
 
         results_layout.addWidget(wing_group, 0, 0)
@@ -235,7 +231,6 @@ class WyngWindow(QMainWindow):
         results_layout.addWidget(stab_group, 1, 0)
         results_layout.addWidget(perf_group, 1, 1)
         self.results_box.setLayout(results_layout)
-        
         right_layout.addWidget(self.results_box)
         
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -336,6 +331,9 @@ class WyngWindow(QMainWindow):
             x_batt = self.x_batt_slider.value() / 100.0
             x_payload = self.x_payload_slider.value() / 100.0
             
+            eta_prop = self.eta_prop_slider.value() / 100.0
+            eta_motor = self.eta_motor_slider.value() / 100.0
+            
             tail_type = self.tail_combo.currentText()
             wing_shape = self.wing_shape_combo.currentText()
             has_winglets = self.winglets_cb.isChecked()
@@ -377,6 +375,8 @@ class WyngWindow(QMainWindow):
             self.lbl_x_motor.setText(f"Position Moteur : {x_motor:.2f} m")
             self.lbl_x_batt.setText(f"Position Batterie : {x_batt:.2f} m")
             self.lbl_x_payload.setText(f"Position Charge U. : {x_payload:.2f} m")
+            self.lbl_eta_prop.setText(f"Rendement Hélice : {eta_prop*100:.0f} %")
+            self.lbl_eta_motor.setText(f"Rendement Moteur : {eta_motor*100:.0f} %")
             
             airfoil_name = self.airfoil_combo.currentText()
             selected_airfoil = self.db.get_airfoil(airfoil_name)
@@ -390,7 +390,8 @@ class WyngWindow(QMainWindow):
                           vh=vh, vv=vv, has_winglets=has_winglets,
                           m_motor=m_motor, x_motor=x_motor,
                           m_batt=m_batt, x_batt=x_batt,
-                          m_payload=m_payload, x_payload=x_payload)
+                          m_payload=m_payload, x_payload=x_payload,
+                          eta_prop=eta_prop, eta_motor=eta_motor)
 
             min_x_cm = int(-nose * 100)
             if is_flying_wing:
@@ -441,6 +442,8 @@ class WyngWindow(QMainWindow):
             self.lbl_cz.setText(f"{drone.cz_cruise:.3f}")
             self.lbl_finesse.setText(f"{drone.finesse:.1f}")
             self.lbl_power.setText(f"{drone.power_required:.1f} W")
+            self.lbl_thrust.setText(f"{drone.thrust_req_g:.0f} g")
+            self.lbl_elec_power.setText(f"{drone.elec_power_req:.1f} W")
 
             if drone.m_structure < 0:
                 self.lbl_alert.setText("⚠️ AVERTISSEMENT : La somme des composants dépasse la masse totale !")
@@ -457,7 +460,6 @@ class WyngWindow(QMainWindow):
             
             export_str = "=========================================\n"
             export_str += "       NOTE DE CALCUL - WYNG V1.0        \n"
-            export_str += "   Conçu par : Ewan Mac-Carthy (ENSAM)   \n"
             export_str += "=========================================\n\n"
             export_str += "[ PARAMÈTRES GLOBAUX ]\n"
             export_str += f"Masse cible         : {mass} kg\n"
