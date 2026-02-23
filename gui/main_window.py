@@ -219,12 +219,21 @@ class WyngWindow(QMainWindow):
         tab_mass = QWidget()
         layout_mass = QVBoxLayout(tab_mass)
         
-        layout_mass.addWidget(QLabel("Moteur (Masse en kg puis Position X) :"))
+        layout_mass.addWidget(QLabel("Configuration Moteurs :"))
+        self.motor_config_combo = QComboBox()
+        self.motor_config_combo.addItems(["Monomoteur", "Bimoteur"])
+        self.motor_config_combo.currentTextChanged.connect(self.calculate_geometry)
+        layout_mass.addWidget(self.motor_config_combo)
+        
+        layout_mass.addWidget(QLabel("Moteur (Masse unitaire en kg puis Pos. X) :"))
         self.m_motor_input = QLineEdit("0.15")
         self.m_motor_input.textChanged.connect(self.calculate_geometry)
         layout_mass.addWidget(self.m_motor_input)
         self.lbl_x_motor = QLabel("Position Moteur : -0.20 m")
         self.x_motor_slider = self._create_slider(-50, 100, -20, layout_mass, self.lbl_x_motor)
+        
+        self.lbl_y_motor = QLabel("Position Y Moteurs : 0.00 m")
+        self.y_motor_slider = self._create_slider(0, 100, 20, layout_mass, self.lbl_y_motor)
         
         layout_mass.addWidget(QLabel("Batterie (Masse en kg puis Position X) :"))
         self.m_batt_input = QLineEdit("0.40")
@@ -375,11 +384,13 @@ class WyngWindow(QMainWindow):
             vh = self.vh_slider.value() / 100.0
             vv = self.vv_slider.value() / 1000.0
             
+            num_motors = 1 if self.motor_config_combo.currentText() == "Monomoteur" else 2
             m_motor = float(self.m_motor_input.text().replace(',', '.'))
             m_batt = float(self.m_batt_input.text().replace(',', '.'))
             m_payload = float(self.m_payload_input.text().replace(',', '.'))
             
             x_motor = self.x_motor_slider.value() / 100.0
+            y_motor = self.y_motor_slider.value() / 100.0
             x_batt = self.x_batt_slider.value() / 100.0
             x_payload = self.x_payload_slider.value() / 100.0
             
@@ -394,6 +405,7 @@ class WyngWindow(QMainWindow):
             is_lambda = (wing_shape == "Lambda")
             is_delta = (wing_shape == "Delta")
             has_tail = not is_flying_wing
+            is_bimotor = (num_motors == 2)
             
             self.sweep_label.setVisible(not is_delta)
             self.sweep_slider.setVisible(not is_delta)
@@ -413,6 +425,9 @@ class WyngWindow(QMainWindow):
             self.vv_label.setVisible(has_tail)
             self.vv_slider.setVisible(has_tail)
             
+            self.lbl_y_motor.setVisible(is_bimotor)
+            self.y_motor_slider.setVisible(is_bimotor)
+            
             self.ar_label.setText(f"Allongement (AR) : {ar:.1f}")
             self.sweep_label.setText(f"Angle de flèche : {sweep:.1f} °")
             self.dihedral_label.setText(f"Angle de dièdre : {dihedral:.1f} °")
@@ -424,7 +439,9 @@ class WyngWindow(QMainWindow):
             self.htail_sweep_label.setText(f"Flèche empennage : {h_sweep:.1f} °")
             self.vh_label.setText(f"Volume Horizontal (Vh) : {vh:.2f}")
             self.vv_label.setText(f"Volume Vertical (Vv) : {vv:.3f}")
+            
             self.lbl_x_motor.setText(f"Position Moteur : {x_motor:.2f} m")
+            self.lbl_y_motor.setText(f"Position Y Moteurs : {y_motor:.2f} m")
             self.lbl_x_batt.setText(f"Position Batterie : {x_batt:.2f} m")
             self.lbl_x_payload.setText(f"Position Charge U. : {x_payload:.2f} m")
             self.lbl_eta_prop.setText(f"Rendement Hélice : {eta_prop*100:.0f} %")
@@ -441,6 +458,7 @@ class WyngWindow(QMainWindow):
                           washout=washout, kink_pos=kink_pos, kink_angle=kink_angle,
                           vh=vh, vv=vv, has_winglets=has_winglets,
                           m_motor=m_motor, x_motor=x_motor,
+                          num_motors=num_motors, y_motor=y_motor,
                           m_batt=m_batt, x_batt=x_batt,
                           m_payload=m_payload, x_payload=x_payload,
                           eta_prop=eta_prop, eta_motor=eta_motor)
@@ -451,16 +469,21 @@ class WyngWindow(QMainWindow):
             else:
                 tail_chord = drone.h_tail.root_chord if drone.h_tail else 0
                 max_x_cm = int((tail_arm + tail_chord) * 100)
+                
+            max_y_cm = int(drone.main_wing.span / 2 * 100)
 
             self.x_motor_slider.blockSignals(True)
+            self.y_motor_slider.blockSignals(True)
             self.x_batt_slider.blockSignals(True)
             self.x_payload_slider.blockSignals(True)
             
             self.x_motor_slider.setRange(min_x_cm, max_x_cm)
+            self.y_motor_slider.setRange(0, max_y_cm)
             self.x_batt_slider.setRange(min_x_cm, max_x_cm)
             self.x_payload_slider.setRange(min_x_cm, max_x_cm)
             
             self.x_motor_slider.blockSignals(False)
+            self.y_motor_slider.blockSignals(False)
             self.x_batt_slider.blockSignals(False)
             self.x_payload_slider.blockSignals(False)
 
@@ -647,12 +670,18 @@ class WyngWindow(QMainWindow):
                 vz = [0, z_tip, z_tip, 0]
                 add_symmetric_poly(vx, vy, vz, 'mediumorchid')
 
-        self.ax.scatter([drone.x_motor], [0], [0], color='orange', s=30, label='Moteur')
-        self.ax.scatter([drone.x_batt], [0], [0], color='green', s=30, label='Batterie')
-        self.ax.scatter([drone.x_payload], [0], [0], color='cyan', s=30, label='Charge U.')
-        self.ax.scatter([drone.neutral_point_x], [0], [0], color='blue', marker='x', s=50, label='Foyer')
-        self.ax.scatter([drone.cg_x], [0], [0], color='black', marker='o', s=30, label='CG Cible')
-        self.ax.scatter([drone.actual_cg_x], [0], [0], color='red', marker='+', s=80, label='CG Réel')
+        # --- DESSIN DES MOTEURS ---
+        if drone.num_motors == 1:
+            self.ax.scatter([drone.x_motor], [0], [0], color='orange', s=40, label='Moteur')
+        else:
+            z_m = drone.y_motor * math.tan(drone.main_wing.dihedral_angle_rad)
+            self.ax.scatter([drone.x_motor, drone.x_motor], [drone.y_motor, -drone.y_motor], [z_m, z_m], color='orange', s=40, label='Moteurs')
+            
+        self.ax.scatter([drone.x_batt], [0], [0], color='green', s=40, label='Batterie')
+        self.ax.scatter([drone.x_payload], [0], [0], color='cyan', s=40, label='Charge U.')
+        self.ax.scatter([drone.neutral_point_x], [0], [0], color='blue', marker='x', s=60, label='Foyer')
+        self.ax.scatter([drone.cg_x], [0], [0], color='black', marker='o', s=40, label='CG Cible')
+        self.ax.scatter([drone.actual_cg_x], [0], [0], color='red', marker='+', s=100, label='CG Réel')
 
         end_x = drone.tail_arm + (drone.h_tail.root_chord if drone.tail_type != "Aile Volante" else 0)
         self.ax.plot([-drone.nose_length, end_x], [0, 0], [0, 0], color='black', linewidth=1, linestyle='-.')
@@ -729,8 +758,10 @@ class WyngWindow(QMainWindow):
                     'h_sweep': self.htail_sweep_slider.value(),
                     'vh': self.vh_slider.value(),
                     'vv': self.vv_slider.value(),
+                    'motor_config': self.motor_config_combo.currentText(),
                     'm_motor': self.m_motor_input.text(),
                     'x_motor': self.x_motor_slider.value(),
+                    'y_motor': self.y_motor_slider.value(),
                     'm_batt': self.m_batt_input.text(),
                     'x_batt': self.x_batt_slider.value(),
                     'm_payload': self.m_payload_input.text(),
@@ -756,9 +787,10 @@ class WyngWindow(QMainWindow):
                     self.airfoil_combo, self.wing_shape_combo, self.ar_slider, self.sweep_slider,
                     self.dihedral_slider, self.kink_pos_slider, self.kink_angle_slider, self.washout_slider,
                     self.winglets_cb, self.tail_combo, self.tailarm_slider, self.nose_slider,
-                    self.htail_sweep_slider, self.vh_slider, self.vv_slider, self.m_motor_input,
-                    self.x_motor_slider, self.m_batt_input, self.x_batt_slider, self.m_payload_input,
-                    self.x_payload_slider, self.eta_prop_slider, self.eta_motor_slider
+                    self.htail_sweep_slider, self.vh_slider, self.vv_slider, self.motor_config_combo, 
+                    self.m_motor_input, self.x_motor_slider, self.y_motor_slider, self.m_batt_input, 
+                    self.x_batt_slider, self.m_payload_input, self.x_payload_slider, 
+                    self.eta_prop_slider, self.eta_motor_slider
                 ]
                 
                 for w in widgets:
@@ -788,8 +820,10 @@ class WyngWindow(QMainWindow):
                 self.htail_sweep_slider.setValue(state.get('h_sweep', 0))
                 self.vh_slider.setValue(state.get('vh', 50))
                 self.vv_slider.setValue(state.get('vv', 40))
+                self.motor_config_combo.setCurrentText(state.get('motor_config', 'Monomoteur'))
                 self.m_motor_input.setText(state.get('m_motor', '0.15'))
                 self.x_motor_slider.setValue(state.get('x_motor', -20))
+                self.y_motor_slider.setValue(state.get('y_motor', 0))
                 self.m_batt_input.setText(state.get('m_batt', '0.40'))
                 self.x_batt_slider.setValue(state.get('x_batt', 0))
                 self.m_payload_input.setText(state.get('m_payload', '0.25'))

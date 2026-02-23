@@ -11,6 +11,7 @@ class Drone:
                  washout: float = 0.0, kink_pos: float = 0.45, kink_angle: float = -30.0,
                  has_winglets: bool = False,
                  m_motor: float = 0.2, x_motor: float = -0.1,
+                 num_motors: int = 1, y_motor: float = 0.0,
                  m_batt: float = 0.5, x_batt: float = 0.0,
                  m_payload: float = 0.3, x_payload: float = 0.1,
                  eta_prop: float = 0.70, eta_motor: float = 0.80):
@@ -32,6 +33,9 @@ class Drone:
         
         self.m_motor = m_motor
         self.x_motor = x_motor
+        self.num_motors = num_motors
+        self.y_motor = y_motor
+        
         self.m_batt = m_batt
         self.x_batt = x_batt
         self.m_payload = m_payload
@@ -158,23 +162,18 @@ class Drone:
         self.elec_power_req = self.power_required / (self.eta_prop * self.eta_motor)
     
     def _calculate_actual_cg(self):
-        """Calcule la position réelle du Centre de Gravité selon la répartition des masses."""
-        # La masse restante correspond à la structure (fuselage + ailes)
-        self.m_structure = self.mass - (self.m_motor + self.m_batt + self.m_payload)
+        self.total_motor_mass = self.num_motors * self.m_motor
+        self.m_structure = self.mass - (self.total_motor_mass + self.m_batt + self.m_payload)
         
-        # On estime que le centre de gravité de la structure vide est proche du foyer aérodynamique
         x_structure = self.neutral_point_x
         
-        # Formule du barycentre
-        sum_moments = (self.m_motor * self.x_motor) + \
+        sum_moments = (self.total_motor_mass * self.x_motor) + \
                       (self.m_batt * self.x_batt) + \
                       (self.m_payload * self.x_payload) + \
                       (self.m_structure * x_structure)
                       
         self.actual_cg_x = sum_moments / self.mass
         
-        # Calcul de la marge statique réelle (en % de la MAC)
-        # MS > 0 = Stable (CG devant le foyer). MS < 0 = Instable.
         self.actual_static_margin = ((self.neutral_point_x - self.actual_cg_x) / self.main_wing.mean_aerodynamic_chord) * 100
 
 
