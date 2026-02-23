@@ -164,10 +164,18 @@ class WyngWindow(QMainWindow):
         left_layout = QVBoxLayout()
         left_layout.addWidget(self.tabs)
         
-        self.export_button = QPushButton("Exporter les résultats")
+        export_layout = QHBoxLayout()
+        self.export_button = QPushButton("Note de Calcul (.txt)")
         self.export_button.clicked.connect(self.export_results)
         self.export_button.setEnabled(False)
-        left_layout.addWidget(self.export_button)
+        
+        self.export_cad_button = QPushButton("Export CAO (.csv)")
+        self.export_cad_button.clicked.connect(self.export_cad)
+        self.export_cad_button.setEnabled(False)
+        
+        export_layout.addWidget(self.export_button)
+        export_layout.addWidget(self.export_cad_button)
+        left_layout.addLayout(export_layout)
         
         right_layout = QVBoxLayout()
         self.results_box = QGroupBox("Paramètres Géométriques")
@@ -298,6 +306,7 @@ class WyngWindow(QMainWindow):
             self.calculate_geometry()
 
     def calculate_geometry(self):
+        import math
         try:
             mass = float(self.mass_input.text().replace(',', '.'))
             v_stall_raw = float(self.vstall_input.text().replace(',', '.'))
@@ -486,26 +495,31 @@ class WyngWindow(QMainWindow):
                 export_str += f"  > Angle d'ouverture : {drone.v_angle:.1f} °\n"
                 for key, value in drone.v_tail_obj.get_summary().items():
                     export_str += f"    * {key:<14}: {value}\n"
-            elif tail_type == "Aile Volante":
-                export_str += "  > Aucun empennage généré.\n"
-            export_str += "\n"
             
-            export_str += "[ CORPS & STABILITÉ ]\n"
-            export_str += f"- Longueur totale   : {longueur_totale:.2f} m\n"
-            if not is_flying_wing:
-                export_str += f"- Bras de levier    : {tail_arm:.2f} m\n"
-                export_str += f"- Volume (Vh)       : {vh:.3f}\n"
-                export_str += f"- Volume (Vv)       : {vv:.3f}\n"
-            export_str += f"- Foyer (X_NP)      : {drone.neutral_point_x:.3f} m\n"
-            export_str += f"- Centre Grav. (X_CG): {drone.cg_x:.3f} m\n"
-            
-            if is_flying_wing and selected_airfoil.cm_0 < 0:
-                export_str += "\n!!! ALERTE DE SÉCURITÉ !!!\n"
-                export_str += "Le profil choisi possède un Cm0 piqueur.\n"
-                export_str += "L'aile volante sera instable en tangage sans un fort vrillage négatif.\n"
-                
             self.export_text = export_str
             self.export_button.setEnabled(True)
+            
+            # --- GÉNÉRATION DES DONNÉES CAO ---
+            cad_str = "Section;Y_Envergure_m;X_Bord_Attaque_m;Z_Elevation_m;Corde_m\n"
+            cad_str += f"Emplanture;0.000;0.000;0.000;{drone.main_wing.root_chord:.4f}\n"
+            
+            if wing_shape == "Lambda":
+                y_kink = drone.main_wing.outline_y[1]
+                x_kink_le = drone.main_wing.outline_x[1]
+                x_kink_te = drone.main_wing.outline_x[4]
+                c_kink = x_kink_te - x_kink_le
+                z_kink = y_kink * math.tan(drone.main_wing.dihedral_angle_rad)
+                cad_str += f"Cassure;{y_kink:.4f};{x_kink_le:.4f};{z_kink:.4f};{c_kink:.4f}\n"
+                
+            b2 = drone.main_wing.span / 2
+            tip_x = drone.main_wing.tip_offset_x
+            tip_z = drone.main_wing.tip_offset_z
+            tip_c = drone.main_wing.tip_chord
+            cad_str += f"Saumon;{b2:.4f};{tip_x:.4f};{tip_z:.4f};{tip_c:.4f}\n"
+            
+            self.export_cad_text = cad_str
+            self.export_cad_button.setEnabled(True)
+            
             self._draw_drone(drone)
 
         except ValueError:
@@ -622,3 +636,13 @@ class WyngWindow(QMainWindow):
                 QMessageBox.information(self, "Succès", "Fichier exporté avec succès.")
             except Exception as e:
                 QMessageBox.critical(self, "Erreur", f"Erreur lors de l'exportation : {e}")
+                
+    def export_cad(self):
+        file_path, _ = QFileDialog.getSaveFileName(self, "Sauvegarder les sections CAO", "", "CSV Files (*.csv)")
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(self.export_cad_text)
+                QMessageBox.information(self, "Succès", "Données CAO exportées avec succès.")
+            except Exception as e:
+                QMessageBox.critical(self, "Erreur", f"Erreur lors de l'exportation CAO : {e}")
