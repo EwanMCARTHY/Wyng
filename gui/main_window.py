@@ -1,9 +1,13 @@
+import math
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QLineEdit, QComboBox, QPushButton, QTextEdit,
-                             QFileDialog, QMessageBox, QSlider,
-                             QGroupBox, QGridLayout, QFormLayout, QTabWidget, QCheckBox)
+                             QLabel, QLineEdit, QComboBox, QPushButton,
+                             QFileDialog, QMessageBox, QSlider, QCheckBox,
+                             QGroupBox, QGridLayout, QFormLayout, QTabWidget)
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 from core.drone import Drone
 from core.airfoil import AirfoilDatabase
@@ -17,6 +21,84 @@ class WyngWindow(QMainWindow):
         
         self.db = AirfoilDatabase()
         self._setup_ui()
+
+    def _create_slider(self, min_val, max_val, default, layout, label):
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(min_val, max_val)
+        slider.setValue(default)
+        slider.valueChanged.connect(self.calculate_geometry)
+        layout.addWidget(label)
+        layout.addWidget(slider)
+        return slider
+
+    def _on_tail_changed(self):
+        is_flying_wing = (self.tail_combo.currentText() == "Aile Volante")
+        current_airfoil = self.airfoil_combo.currentText()
+        self.airfoil_combo.blockSignals(True)
+        self.airfoil_combo.clear()
+        
+        valid_airfoils = self.db.list_airfoils(require_autostable=is_flying_wing)
+        self.airfoil_combo.addItems(valid_airfoils)
+        
+        if current_airfoil in valid_airfoils:
+            self.airfoil_combo.setCurrentText(current_airfoil)
+            
+        self.airfoil_combo.blockSignals(False)
+        self.calculate_geometry()
+
+    def _on_unit_changed(self, new_unit):
+        try:
+            v_stall_val = float(self.vstall_input.text().replace(',', '.'))
+            v_cruise_val = float(self.vcruise_input.text().replace(',', '.'))
+            
+            self.vstall_input.blockSignals(True)
+            self.vcruise_input.blockSignals(True)
+            
+            if new_unit == "km/h":
+                self.lbl_vstall_title.setText("Vitesse décrochage (km/h) :")
+                self.lbl_vcruise_title.setText("Vitesse croisière (km/h) :")
+                self.vstall_input.setText(f"{v_stall_val * 3.6:.1f}")
+                self.vcruise_input.setText(f"{v_cruise_val * 3.6:.1f}")
+            else:
+                self.lbl_vstall_title.setText("Vitesse décrochage (m/s) :")
+                self.lbl_vcruise_title.setText("Vitesse croisière (m/s) :")
+                self.vstall_input.setText(f"{v_stall_val / 3.6:.1f}")
+                self.vcruise_input.setText(f"{v_cruise_val / 3.6:.1f}")
+                
+        except ValueError:
+            pass
+        finally:
+            self.vstall_input.blockSignals(False)
+            self.vcruise_input.blockSignals(False)
+            self.calculate_geometry()
+
+    def _on_scroll(self, event):
+        if not hasattr(self, 'ax') or event.inaxes != self.ax:
+            return
+            
+        scale_factor = 0.9 if event.button == 'up' else 1.1
+        
+        xlim = self.ax.get_xlim3d()
+        ylim = self.ax.get_ylim3d()
+        zlim = self.ax.get_zlim3d()
+        
+        x_center = (xlim[0] + xlim[1]) / 2
+        y_center = (ylim[0] + ylim[1]) / 2
+        z_center = (zlim[0] + zlim[1]) / 2
+        
+        x_range = (xlim[1] - xlim[0]) * scale_factor / 2
+        y_range = (ylim[1] - ylim[0]) * scale_factor / 2
+        z_range = (zlim[1] - zlim[0]) * scale_factor / 2
+        
+        self.ax.set_xlim3d([x_center - x_range, x_center + x_range])
+        self.ax.set_ylim3d([y_center - y_range, y_center + y_range])
+        self.ax.set_zlim3d([z_center - z_range, z_center + z_range])
+        
+        self.canvas.draw()
+
+    def reset_3d_view(self):
+        self.view_needs_reset = True
+        self.calculate_geometry()
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -241,10 +323,9 @@ class WyngWindow(QMainWindow):
         self.results_box.setLayout(results_layout)
         right_layout.addWidget(self.results_box)
         
-        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-        from matplotlib.figure import Figure
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
+        self.canvas.mpl_connect('scroll_event', self._on_scroll)
         right_layout.addWidget(self.canvas)
         
         self.btn_reset_view = QPushButton("Réinitialiser la vue 3D")
@@ -256,63 +337,8 @@ class WyngWindow(QMainWindow):
 
         self.view_needs_reset = True
         self.calculate_geometry()
-    
-    def reset_3d_view(self):
-        self.view_needs_reset = True
-        self.calculate_geometry()
-
-    def _create_slider(self, min_val, max_val, default, layout, label):
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(min_val, max_val)
-        slider.setValue(default)
-        slider.valueChanged.connect(self.calculate_geometry)
-        layout.addWidget(label)
-        layout.addWidget(slider)
-        return slider
-
-    def _on_tail_changed(self):
-        is_flying_wing = (self.tail_combo.currentText() == "Aile Volante")
-        current_airfoil = self.airfoil_combo.currentText()
-        self.airfoil_combo.blockSignals(True)
-        self.airfoil_combo.clear()
-        valid_airfoils = self.db.list_airfoils(require_autostable=is_flying_wing)
-        self.airfoil_combo.addItems(valid_airfoils)
-        if current_airfoil in valid_airfoils:
-            self.airfoil_combo.setCurrentText(current_airfoil)
-        self.airfoil_combo.blockSignals(False)
-        self.calculate_geometry()
-
-    def _on_unit_changed(self, new_unit):
-        """Convertit les valeurs des champs texte à la volée quand l'unité change."""
-        try:
-            v_stall_val = float(self.vstall_input.text().replace(',', '.'))
-            v_cruise_val = float(self.vcruise_input.text().replace(',', '.'))
-            
-            # On coupe temporairement les signaux pour ne pas lancer 20 calculs d'affilée
-            self.vstall_input.blockSignals(True)
-            self.vcruise_input.blockSignals(True)
-            
-            if new_unit == "km/h":
-                self.lbl_vstall_title.setText("Vitesse décrochage (km/h) :")
-                self.lbl_vcruise_title.setText("Vitesse croisière (km/h) :")
-                self.vstall_input.setText(f"{v_stall_val * 3.6:.1f}")
-                self.vcruise_input.setText(f"{v_cruise_val * 3.6:.1f}")
-            else:
-                self.lbl_vstall_title.setText("Vitesse décrochage (m/s) :")
-                self.lbl_vcruise_title.setText("Vitesse croisière (m/s) :")
-                self.vstall_input.setText(f"{v_stall_val / 3.6:.1f}")
-                self.vcruise_input.setText(f"{v_cruise_val / 3.6:.1f}")
-                
-        except ValueError:
-            pass # Si le champ est vide ou invalide, on ne fait rien
-            
-        finally:
-            self.vstall_input.blockSignals(False)
-            self.vcruise_input.blockSignals(False)
-            self.calculate_geometry()
 
     def calculate_geometry(self):
-        import math
         try:
             mass = float(self.mass_input.text().replace(',', '.'))
             v_stall_raw = float(self.vstall_input.text().replace(',', '.'))
@@ -475,6 +501,7 @@ class WyngWindow(QMainWindow):
             
             export_str = "=========================================\n"
             export_str += "       NOTE DE CALCUL - WYNG V1.0        \n"
+            export_str += "   Conçu par : Ewan Mac-Carthy (ENSAM)   \n"
             export_str += "=========================================\n\n"
             export_str += "[ PARAMÈTRES GLOBAUX ]\n"
             export_str += f"Masse cible         : {mass} kg\n"
@@ -505,7 +532,6 @@ class WyngWindow(QMainWindow):
             self.export_text = export_str
             self.export_button.setEnabled(True)
             
-            # --- GÉNÉRATION DES DONNÉES CAO ---
             cad_str = "Section;Y_Envergure_m;X_Bord_Attaque_m;Z_Elevation_m;Corde_m\n"
             cad_str += f"Emplanture;0.000;0.000;0.000;{drone.main_wing.root_chord:.4f}\n"
             
@@ -643,6 +669,8 @@ class WyngWindow(QMainWindow):
 
         if saved_elev is not None and saved_azim is not None:
             self.ax.view_init(elev=saved_elev, azim=saved_azim)
+        else:
+            self.ax.view_init(elev=30, azim=-60)
 
         self.view_needs_reset = False
         
@@ -650,15 +678,15 @@ class WyngWindow(QMainWindow):
         self.canvas.draw()
 
     def export_results(self):
-        file_path, _ = QFileDialog.getSaveFileName(self, "Sauvegarder", "", "Text Files (*.txt)")
+        file_path, _ = QFileDialog.getSaveFileName(self, "Sauvegarder la Note de Calcul", "", "Text Files (*.txt)")
         if file_path:
             try:
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(self.export_text)
-                QMessageBox.information(self, "Succès", "Fichier exporté avec succès.")
+                QMessageBox.information(self, "Succès", "Note de calcul exportée avec succès.")
             except Exception as e:
                 QMessageBox.critical(self, "Erreur", f"Erreur lors de l'exportation : {e}")
-                
+
     def export_cad(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Sauvegarder les sections CAO", "", "CSV Files (*.csv)")
         if file_path:
