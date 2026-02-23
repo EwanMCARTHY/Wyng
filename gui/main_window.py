@@ -245,14 +245,20 @@ class WyngWindow(QMainWindow):
         from matplotlib.figure import Figure
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
-        self.ax_top = self.figure.add_subplot(211)
-        self.ax_front = self.figure.add_subplot(212)
-        self.figure.subplots_adjust(hspace=0.3)
         right_layout.addWidget(self.canvas)
+        
+        self.btn_reset_view = QPushButton("Réinitialiser la vue 3D")
+        self.btn_reset_view.clicked.connect(self.reset_3d_view)
+        right_layout.addWidget(self.btn_reset_view)
         
         main_layout.addLayout(left_layout, 1) 
         main_layout.addLayout(right_layout, 3)
 
+        self.view_needs_reset = True
+        self.calculate_geometry()
+    
+    def reset_3d_view(self):
+        self.view_needs_reset = True
         self.calculate_geometry()
 
     def _create_slider(self, min_val, max_val, default, layout, label):
@@ -526,105 +532,121 @@ class WyngWindow(QMainWindow):
             pass
 
     def _draw_drone(self, drone):
-        self.ax_top.clear()
-        self.ax_front.clear()
+        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+        import math
         
-        b2 = drone.main_wing.span / 2
-        cr = drone.main_wing.root_chord
-
-        # 1. VUE DE DESSUS
-        self.ax_top.set_title("Schéma 2D (Vue de dessus)")
-        self.ax_top.set_ylabel("Envergure Y (m)")
-
-        x_right = drone.main_wing.outline_x
-        y_right = drone.main_wing.outline_y
-        x_left = x_right[::-1] 
-        y_left = [-y for y in y_right[::-1]]
-        x_wing_full = x_right + x_left
-        y_wing_full = y_right + y_left
+        if not hasattr(self, 'ax'):
+            self.ax = self.figure.add_subplot(111, projection='3d')
+            self.view_needs_reset = True
+            
+        if getattr(self, 'view_needs_reset', False):
+            saved_elev = None
+            saved_azim = None
+            saved_xlim = None
+            saved_ylim = None
+            saved_zlim = None
+        else:
+            saved_elev = self.ax.elev
+            saved_azim = self.ax.azim
+            saved_xlim = self.ax.get_xlim()
+            saved_ylim = self.ax.get_ylim()
+            saved_zlim = self.ax.get_zlim()
+            
+        self.ax.clear()
+        self.ax.set_title("Visualisation 3D du Projet")
+        self.ax.set_xlabel("Axe Longitudinal X (m)")
+        self.ax.set_ylabel("Envergure Y (m)")
+        self.ax.set_zlabel("Hauteur Z (m)")
         
-        self.ax_top.fill(x_wing_full, y_wing_full, color='skyblue', edgecolor='blue', alpha=0.6)
+        def add_symmetric_poly(x_coords, y_coords, z_coords, color, alpha=0.6):
+            verts_right = list(zip(x_coords, y_coords, z_coords))
+            self.ax.add_collection3d(Poly3DCollection([verts_right], facecolors=color, edgecolors='black', alpha=alpha))
+            verts_left = list(zip(x_coords, [-y for y in y_coords], z_coords))
+            self.ax.add_collection3d(Poly3DCollection([verts_left], facecolors=color, edgecolors='black', alpha=alpha))
+
+        y_coords = drone.main_wing.outline_y
+        x_coords = drone.main_wing.outline_x
+        z_coords = [y * math.tan(drone.main_wing.dihedral_angle_rad) for y in y_coords]
+        add_symmetric_poly(x_coords, y_coords, z_coords, 'skyblue')
+
+        if drone.main_wing.has_winglets:
+            b2 = drone.main_wing.span / 2
+            tip_x = drone.main_wing.tip_offset_x
+            tip_c = drone.main_wing.tip_chord
+            tip_z = b2 * math.tan(drone.main_wing.dihedral_angle_rad)
+            winglet_h = b2 * 0.15
+            w_x = [tip_x, tip_x + tip_c, tip_x + tip_c * 0.5, tip_x]
+            w_y = [b2, b2, b2, b2]
+            w_z = [tip_z, tip_z, tip_z + winglet_h, tip_z + winglet_h]
+            add_symmetric_poly(w_x, w_y, w_z, 'darkblue', 0.8)
 
         if drone.tail_type != "Aile Volante":
             arm = drone.tail_arm
             hb2 = drone.h_tail.span / 2
             hcr = drone.h_tail.root_chord
             hct = drone.h_tail.tip_chord
-            h_offset = drone.h_tail.tip_offset_x 
-            
-            x_htail = [arm, arm + h_offset, arm + h_offset + hct, arm + hcr, arm + h_offset + hct, arm + h_offset]
-            y_htail = [0, hb2, hb2, 0, -hb2, -hb2]
+            hoff = drone.h_tail.tip_offset_x
             
             if drone.tail_type in ["Classique", "Empennage en T"]:
-                self.ax_top.fill(x_htail, y_htail, color='lightcoral', edgecolor='red', alpha=0.6)
-                self.ax_top.plot([arm, arm+hcr], [0, 0], color='red', linewidth=2)
+                z_htail = 0 if drone.tail_type == "Classique" else drone.v_tail.span
+                hx = [arm, arm + hoff, arm + hoff + hct, arm + hcr]
+                hy = [0, hb2, hb2, 0]
+                hz = [z_htail, z_htail, z_htail, z_htail]
+                add_symmetric_poly(hx, hy, hz, 'lightcoral')
+                
+                vx = [arm, arm + drone.v_tail.tip_offset_x, arm + drone.v_tail.tip_offset_x + drone.v_tail.tip_chord, arm + drone.v_tail.root_chord]
+                vy = [0, 0, 0, 0]
+                vz = [0, drone.v_tail.span, drone.v_tail.span, 0]
+                verts_v = list(zip(vx, vy, vz))
+                self.ax.add_collection3d(Poly3DCollection([verts_v], facecolors='darkred', edgecolors='black', alpha=0.6))
+                
             elif drone.tail_type == "Empennage en V":
-                self.ax_top.fill(x_htail, y_htail, color='mediumorchid', edgecolor='purple', alpha=0.6)
+                v_span = drone.v_tail_obj.span / 2
+                v_angle_rad = math.radians(drone.v_angle)
+                z_tip = v_span * math.sin(v_angle_rad)
+                y_tip = v_span * math.cos(v_angle_rad)
+                vcr = drone.v_tail_obj.root_chord
+                vct = drone.v_tail_obj.tip_chord
+                voff = drone.v_tail_obj.tip_offset_x
+                vx = [arm, arm + voff, arm + voff + vct, arm + vcr]
+                vy = [0, y_tip, y_tip, 0]
+                vz = [0, z_tip, z_tip, 0]
+                add_symmetric_poly(vx, vy, vz, 'mediumorchid')
 
-        if drone.tail_type == "Aile Volante":
-            self.ax_top.plot([-drone.nose_length, cr], [0, 0], color='black', linewidth=3, linestyle='-.')
+        self.ax.scatter([drone.x_motor], [0], [0], color='orange', s=30, label='Moteur')
+        self.ax.scatter([drone.x_batt], [0], [0], color='green', s=30, label='Batterie')
+        self.ax.scatter([drone.x_payload], [0], [0], color='cyan', s=30, label='Charge U.')
+        self.ax.scatter([drone.neutral_point_x], [0], [0], color='blue', marker='x', s=50, label='Foyer')
+        self.ax.scatter([drone.cg_x], [0], [0], color='black', marker='o', s=30, label='CG Cible')
+        self.ax.scatter([drone.actual_cg_x], [0], [0], color='red', marker='+', s=80, label='CG Réel')
+
+        end_x = drone.tail_arm + (drone.h_tail.root_chord if drone.tail_type != "Aile Volante" else 0)
+        self.ax.plot([-drone.nose_length, end_x], [0, 0], [0, 0], color='black', linewidth=1, linestyle='-.')
+
+        if saved_xlim is not None and saved_ylim is not None and saved_zlim is not None:
+            self.ax.set_xlim(saved_xlim)
+            self.ax.set_ylim(saved_ylim)
+            self.ax.set_zlim(saved_zlim)
         else:
-            self.ax_top.plot([-drone.nose_length, arm + (drone.h_tail.root_chord if drone.h_tail else 0)], 
-                             [0, 0], color='black', linewidth=3, linestyle='-.')
-
-        # Tracé des points de référence aérodynamiques
-        self.ax_top.plot(drone.neutral_point_x, 0, marker='x', color='blue', markersize=8, markeredgewidth=2, label="Foyer (NP)")
-        # On ajoute le label "CG Cible" au rond blanc
-        self.ax_top.plot(drone.cg_x, 0, marker='o', color='black', markerfacecolor='white', markersize=8, label="CG Cible (Idéal)")
-        
-        # Tracé des composants internes
-        self.ax_top.plot(drone.x_motor, 0, marker='s', color='orange', markersize=10, label="Moteur")
-        self.ax_top.plot(drone.x_batt, 0, marker='s', color='green', markersize=12, label="Batterie")
-        self.ax_top.plot(drone.x_payload, 0, marker='^', color='cyan', markersize=10, label="Charge Utile")
-        
-        # Tracé du CG RÉEL (Cible rouge)
-        self.ax_top.plot(drone.actual_cg_x, 0, marker='+', color='red', markersize=15, markeredgewidth=3, label="CG Réel (Masses)")
-        
-        self.ax_top.axis('equal')
-        self.ax_top.grid(True, linestyle=':')
-        self.ax_top.legend(loc='upper right', fontsize='small') # Force l'affichage de la légende
-
-        # 2. VUE DE FACE
-        self.ax_front.set_title("Élévation (Vue de face)")
-        self.ax_front.set_xlabel("Envergure Y (m)")
-        self.ax_front.set_ylabel("Hauteur Z (m)")
-        
-        self.ax_front.plot(0, 0, marker='o', color='black', markersize=10)
-
-        z_tip = drone.main_wing.tip_offset_z
-        self.ax_front.plot([0, b2], [0, z_tip], color='blue', linewidth=3, label="Aile Principale")
-        self.ax_front.plot([0, -b2], [0, z_tip], color='blue', linewidth=3)
-        
-        # Dessin des Winglets
-        if drone.main_wing.has_winglets:
-            winglet_h = b2 * 0.15
-            self.ax_front.plot([b2, b2], [z_tip, z_tip + winglet_h], color='darkblue', linewidth=2, label="Winglet")
-            self.ax_front.plot([-b2, -b2], [z_tip, z_tip + winglet_h], color='darkblue', linewidth=2)
-
-        if drone.tail_type == "Classique":
-            self.ax_front.plot([-drone.h_tail.span/2, drone.h_tail.span/2], [0, 0], color='red', linewidth=2, label="H-Tail")
-            self.ax_front.plot([0, 0], [0, drone.v_tail.span], color='darkred', linewidth=2, label="V-Tail")
+            all_x = [-drone.nose_length, end_x, drone.main_wing.root_chord]
+            all_y = [-drone.main_wing.span/2, drone.main_wing.span/2]
+            all_z = [-0.2, drone.main_wing.tip_offset_z + 0.3]
             
-        elif drone.tail_type == "Empennage en T":
-            # Le H-Tail est perché tout en haut du V-Tail
-            z_htail = drone.v_tail.span
-            self.ax_front.plot([0, 0], [0, z_htail], color='darkred', linewidth=2, label="V-Tail")
-            self.ax_front.plot([-drone.h_tail.span/2, drone.h_tail.span/2], [z_htail, z_htail], color='red', linewidth=2, label="H-Tail")
-
-        elif drone.tail_type == "Empennage en V":
-            import math
-            v_span = drone.v_tail_obj.span / 2
-            v_angle_rad = math.radians(drone.v_angle)
-            z_vtail = v_span * math.sin(v_angle_rad)
-            y_vtail = v_span * math.cos(v_angle_rad)
+            max_range = max(max(all_x)-min(all_x), max(all_y)-min(all_y)) / 2.0
+            mid_x = (max(all_x) + min(all_x)) * 0.5
+            mid_y = (max(all_y) + min(all_y)) * 0.5
+            mid_z = (max(all_z) + min(all_z)) * 0.5
             
-            self.ax_front.plot([0, y_vtail], [0, z_vtail], color='purple', linewidth=2, label="V-Tail")
-            self.ax_front.plot([0, -y_vtail], [0, z_vtail], color='purple', linewidth=2)
+            self.ax.set_xlim(mid_x - max_range, mid_x + max_range)
+            self.ax.set_ylim(mid_y - max_range, mid_y + max_range)
+            self.ax.set_zlim(mid_z - max_range, mid_z + max_range)
 
-        self.ax_front.axis('equal')
-        self.ax_front.grid(True, linestyle=':')
-        self.ax_front.legend(loc='upper right', fontsize='small')
+        if saved_elev is not None and saved_azim is not None:
+            self.ax.view_init(elev=saved_elev, azim=saved_azim)
+
+        self.view_needs_reset = False
         
+        self.ax.legend(loc='upper right', fontsize='x-small')
         self.canvas.draw()
 
     def export_results(self):
