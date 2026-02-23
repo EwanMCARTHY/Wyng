@@ -135,6 +135,37 @@ class WyngWindow(QMainWindow):
         layout_tail.addStretch()
         self.tabs.addTab(tab_tail, "Corps & Empennage")
         
+        # 4. Onglet Masses & Centrage
+        tab_mass = QWidget()
+        layout_mass = QVBoxLayout(tab_mass)
+        
+        # Moteur
+        layout_mass.addWidget(QLabel("Moteur (Masse en kg puis Position X) :"))
+        self.m_motor_input = QLineEdit("0.15")
+        self.m_motor_input.textChanged.connect(self.calculate_geometry)
+        layout_mass.addWidget(self.m_motor_input) # La masse en premier
+        self.lbl_x_motor = QLabel("Position Moteur : -0.20 m")
+        self.x_motor_slider = self._create_slider(-50, 100, -20, layout_mass, self.lbl_x_motor) # Le slider ensuite
+        
+        # Batterie
+        layout_mass.addWidget(QLabel("Batterie (Masse en kg puis Position X) :"))
+        self.m_batt_input = QLineEdit("0.40")
+        self.m_batt_input.textChanged.connect(self.calculate_geometry)
+        layout_mass.addWidget(self.m_batt_input)
+        self.lbl_x_batt = QLabel("Position Batterie : 0.00 m")
+        self.x_batt_slider = self._create_slider(-50, 100, 0, layout_mass, self.lbl_x_batt)
+        
+        # Charge Utile
+        layout_mass.addWidget(QLabel("Charge Utile (Masse en kg puis Pos. X) :"))
+        self.m_payload_input = QLineEdit("0.25")
+        self.m_payload_input.textChanged.connect(self.calculate_geometry)
+        layout_mass.addWidget(self.m_payload_input)
+        self.lbl_x_payload = QLabel("Position Charge U. : 0.10 m")
+        self.x_payload_slider = self._create_slider(-50, 100, 10, layout_mass, self.lbl_x_payload)
+        
+        layout_mass.addStretch()
+        self.tabs.addTab(tab_mass, "Centrage")
+        
         # Panneau Gauche complet
         left_layout = QVBoxLayout()
         left_layout.addWidget(self.tabs)
@@ -277,7 +308,6 @@ class WyngWindow(QMainWindow):
             v_stall_raw = float(self.vstall_input.text().replace(',', '.'))
             v_cruise_raw = float(self.vcruise_input.text().replace(',', '.'))
             
-            # --- CONVERSION DES VITESSES ---
             if self.speed_unit_combo.currentText() == "km/h":
                 v_stall = v_stall_raw / 3.6
                 v_cruise = v_cruise_raw / 3.6
@@ -285,7 +315,6 @@ class WyngWindow(QMainWindow):
                 v_stall = v_stall_raw
                 v_cruise = v_cruise_raw
             
-            # Paramètres Sliders (avec mise à l'échelle)
             ar = self.ar_slider.value() / 10.0
             sweep = self.sweep_slider.value() / 10.0
             dihedral = self.dihedral_slider.value() / 10.0
@@ -293,36 +322,38 @@ class WyngWindow(QMainWindow):
             kink_angle = self.kink_angle_slider.value() / 10.0
             washout = self.washout_slider.value() / 10.0
             
-            # ... (récupération des autres sliders) ...
             tail_arm = self.tailarm_slider.value() / 100.0
             nose = self.nose_slider.value() / 100.0
             h_sweep = self.htail_sweep_slider.value() / 10.0
             vh = self.vh_slider.value() / 100.0
             vv = self.vv_slider.value() / 1000.0
             
+            m_motor = float(self.m_motor_input.text().replace(',', '.'))
+            m_batt = float(self.m_batt_input.text().replace(',', '.'))
+            m_payload = float(self.m_payload_input.text().replace(',', '.'))
+            
+            x_motor = self.x_motor_slider.value() / 100.0
+            x_batt = self.x_batt_slider.value() / 100.0
+            x_payload = self.x_payload_slider.value() / 100.0
+            
             tail_type = self.tail_combo.currentText()
             wing_shape = self.wing_shape_combo.currentText()
             has_winglets = self.winglets_cb.isChecked()
             
-            # --- MASQUAGE DYNAMIQUE ---
             is_flying_wing = (tail_type == "Aile Volante")
             is_lambda = (wing_shape == "Lambda")
             is_delta = (wing_shape == "Delta")
             has_tail = not is_flying_wing
             
-            # Masquage de la flèche pour l'aile Delta
             self.sweep_label.setVisible(not is_delta)
             self.sweep_slider.setVisible(not is_delta)
-            
             self.washout_label.setVisible(is_flying_wing)
             self.washout_slider.setVisible(is_flying_wing)
             self.winglets_cb.setVisible(is_flying_wing)
-            
             self.kink_pos_label.setVisible(is_lambda)
             self.kink_pos_slider.setVisible(is_lambda)
             self.kink_angle_label.setVisible(is_lambda)
             self.kink_angle_slider.setVisible(is_lambda)
-            
             self.tailarm_label.setVisible(has_tail)
             self.tailarm_slider.setVisible(has_tail)
             self.htail_sweep_label.setVisible(has_tail)
@@ -332,19 +363,20 @@ class WyngWindow(QMainWindow):
             self.vv_label.setVisible(has_tail)
             self.vv_slider.setVisible(has_tail)
             
-            # Mise à jour des labels
             self.ar_label.setText(f"Allongement (AR) : {ar:.1f}")
             self.sweep_label.setText(f"Angle de flèche : {sweep:.1f} °")
             self.dihedral_label.setText(f"Angle de dièdre : {dihedral:.1f} °")
             self.kink_pos_label.setText(f"Position cassure : {kink_pos*100:.0f} %")
             self.kink_angle_label.setText(f"Angle de cassure (BF) : {kink_angle:.1f} °")
             self.washout_label.setText(f"Vrillage (Washout) : {washout:.1f} °")
-            
             self.tailarm_label.setText(f"Bras de levier : {tail_arm:.2f} m")
             self.nose_label.setText(f"Longueur du nez : {nose:.2f} m")
             self.htail_sweep_label.setText(f"Flèche empennage : {h_sweep:.1f} °")
             self.vh_label.setText(f"Volume Horizontal (Vh) : {vh:.2f}")
             self.vv_label.setText(f"Volume Vertical (Vv) : {vv:.3f}")
+            self.lbl_x_motor.setText(f"Position Moteur : {x_motor:.2f} m")
+            self.lbl_x_batt.setText(f"Position Batterie : {x_batt:.2f} m")
+            self.lbl_x_payload.setText(f"Position Charge U. : {x_payload:.2f} m")
             
             airfoil_name = self.airfoil_combo.currentText()
             selected_airfoil = self.db.get_airfoil(airfoil_name)
@@ -355,16 +387,35 @@ class WyngWindow(QMainWindow):
                           tail_arm=tail_arm, nose_length=nose, tail_type=tail_type,
                           h_tail_sweep=h_sweep, wing_shape=wing_shape,
                           washout=washout, kink_pos=kink_pos, kink_angle=kink_angle,
-                          vh=vh, vv=vv, has_winglets=has_winglets)
+                          vh=vh, vv=vv, has_winglets=has_winglets,
+                          m_motor=m_motor, x_motor=x_motor,
+                          m_batt=m_batt, x_batt=x_batt,
+                          m_payload=m_payload, x_payload=x_payload)
 
-            # Mise à jour des résultats
+            min_x_cm = int(-nose * 100)
+            if is_flying_wing:
+                max_x_cm = int(drone.main_wing.root_chord * 100)
+            else:
+                tail_chord = drone.h_tail.root_chord if drone.h_tail else 0
+                max_x_cm = int((tail_arm + tail_chord) * 100)
+
+            self.x_motor_slider.blockSignals(True)
+            self.x_batt_slider.blockSignals(True)
+            self.x_payload_slider.blockSignals(True)
+            
+            self.x_motor_slider.setRange(min_x_cm, max_x_cm)
+            self.x_batt_slider.setRange(min_x_cm, max_x_cm)
+            self.x_payload_slider.setRange(min_x_cm, max_x_cm)
+            
+            self.x_motor_slider.blockSignals(False)
+            self.x_batt_slider.blockSignals(False)
+            self.x_payload_slider.blockSignals(False)
+
             self.lbl_surface.setText(f"{drone.required_surface:.3f} m²")
             self.lbl_wing_span.setText(f"{drone.main_wing.span:.2f} m")
             self.lbl_wing_root.setText(f"{drone.main_wing.root_chord:.2f} m")
             self.lbl_wing_tip.setText(f"{drone.main_wing.tip_chord:.2f} m")
             self.lbl_wing_inc.setText(f"{drone.wing_incidence:.1f}°")
-
-            self.lbl_alert.setText("")
 
             if tail_type in ["Classique", "Empennage en T"]:
                 self.lbl_tail_type.setText(tail_type)
@@ -381,8 +432,6 @@ class WyngWindow(QMainWindow):
                 self.lbl_tail_span.setText("N/A")
                 self.lbl_tail_root.setText("N/A")
                 self.lbl_tail_angle.setText("N/A")
-                if selected_airfoil.cm_0 < 0:
-                    self.lbl_alert.setText("⚠️ Profil instable (Cm0 < 0)")
 
             longueur_totale = nose + drone.main_wing.root_chord + (tail_arm if not is_flying_wing else 0)
             self.lbl_length.setText(f"{longueur_totale:.2f} m")
@@ -393,7 +442,15 @@ class WyngWindow(QMainWindow):
             self.lbl_finesse.setText(f"{drone.finesse:.1f}")
             self.lbl_power.setText(f"{drone.power_required:.1f} W")
 
-            # --- GÉNÉRATION DE LA NOTE DE CALCUL (EXPORT TEXTE) ---
+            if drone.m_structure < 0:
+                self.lbl_alert.setText("⚠️ AVERTISSEMENT : La somme des composants dépasse la masse totale !")
+            elif drone.actual_static_margin < 5:
+                self.lbl_alert.setText("⚠️ AVERTISSEMENT : Drone instable (Marge statique < 5%) !")
+            elif is_flying_wing and selected_airfoil.cm_0 < 0:
+                self.lbl_alert.setText("⚠️ Profil instable (Cm0 < 0)")
+            else:
+                self.lbl_alert.setText("")
+
             unit_str = self.speed_unit_combo.currentText()
             v_stall_display = self.vstall_input.text()
             v_cruise_display = self.vcruise_input.text()
@@ -402,7 +459,6 @@ class WyngWindow(QMainWindow):
             export_str += "       NOTE DE CALCUL - WYNG V1.0        \n"
             export_str += "   Conçu par : Ewan Mac-Carthy (ENSAM)   \n"
             export_str += "=========================================\n\n"
-            
             export_str += "[ PARAMÈTRES GLOBAUX ]\n"
             export_str += f"Masse cible         : {mass} kg\n"
             export_str += f"Vitesse décrochage  : {v_stall_display} {unit_str}\n"
@@ -447,7 +503,6 @@ class WyngWindow(QMainWindow):
                 export_str += "L'aile volante sera instable en tangage sans un fort vrillage négatif.\n"
                 
             self.export_text = export_str
-            # ------------------------------------------------------
             self.export_button.setEnabled(True)
             self._draw_drone(drone)
 
@@ -496,10 +551,22 @@ class WyngWindow(QMainWindow):
             self.ax_top.plot([-drone.nose_length, arm + (drone.h_tail.root_chord if drone.h_tail else 0)], 
                              [0, 0], color='black', linewidth=3, linestyle='-.')
 
-        self.ax_top.plot(drone.neutral_point_x, 0, marker='x', color='blue', markersize=8, markeredgewidth=2)
-        self.ax_top.plot(drone.cg_x, 0, marker='o', color='black', markerfacecolor='white', markersize=8)
+        # Tracé des points de référence aérodynamiques
+        self.ax_top.plot(drone.neutral_point_x, 0, marker='x', color='blue', markersize=8, markeredgewidth=2, label="Foyer (NP)")
+        # On ajoute le label "CG Cible" au rond blanc
+        self.ax_top.plot(drone.cg_x, 0, marker='o', color='black', markerfacecolor='white', markersize=8, label="CG Cible (Idéal)")
+        
+        # Tracé des composants internes
+        self.ax_top.plot(drone.x_motor, 0, marker='s', color='orange', markersize=10, label="Moteur")
+        self.ax_top.plot(drone.x_batt, 0, marker='s', color='green', markersize=12, label="Batterie")
+        self.ax_top.plot(drone.x_payload, 0, marker='^', color='cyan', markersize=10, label="Charge Utile")
+        
+        # Tracé du CG RÉEL (Cible rouge)
+        self.ax_top.plot(drone.actual_cg_x, 0, marker='+', color='red', markersize=15, markeredgewidth=3, label="CG Réel (Masses)")
+        
         self.ax_top.axis('equal')
         self.ax_top.grid(True, linestyle=':')
+        self.ax_top.legend(loc='upper right', fontsize='small') # Force l'affichage de la légende
 
         # 2. VUE DE FACE
         self.ax_front.set_title("Élévation (Vue de face)")

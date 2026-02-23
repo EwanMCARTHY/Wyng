@@ -9,7 +9,10 @@ class Drone:
                  nose_length: float = 0.2, tail_type: str = "Classique",
                  h_tail_sweep: float = 0.0, wing_shape: str = "Trapézoïdale",
                  washout: float = 0.0, kink_pos: float = 0.45, kink_angle: float = -30.0,
-                 has_winglets: bool = False):
+                 has_winglets: bool = False,
+                 m_motor: float = 0.2, x_motor: float = -0.1,
+                 m_batt: float = 0.5, x_batt: float = 0.0,
+                 m_payload: float = 0.3, x_payload: float = 0.1):
         
         self.mass = mass
         self.g = 9.81
@@ -26,6 +29,13 @@ class Drone:
         self.h_tail_sweep = h_tail_sweep
         self.wing_shape = wing_shape
         
+        self.m_motor = m_motor
+        self.x_motor = x_motor
+        self.m_batt = m_batt
+        self.x_batt = x_batt
+        self.m_payload = m_payload
+        self.x_payload = x_payload
+        
         self.required_surface = self._calculate_required_surface()
         
         self.main_wing = Wing(
@@ -39,7 +49,12 @@ class Drone:
         
         self._calculate_tails()
         self._calculate_cg_and_stability()
+        self._calculate_actual_cg()
         self._calculate_incidence()
+        self.cz_cruise = 0.0
+        self.cd_total = 0.0
+        self.finesse = 0.0
+        self.power_required = 0.0
         self._calculate_aerodynamics()
 
     def _calculate_required_surface(self) -> float:
@@ -141,6 +156,26 @@ class Drone:
         # Puissance mécanique nécessaire (Force de traînée * Vitesse) en Watts
         drag_force = dynamic_pressure_cruise * self.main_wing.surface * self.cd_total
         self.power_required = drag_force * self.v_cruise
+    
+    def _calculate_actual_cg(self):
+        """Calcule la position réelle du Centre de Gravité selon la répartition des masses."""
+        # La masse restante correspond à la structure (fuselage + ailes)
+        self.m_structure = self.mass - (self.m_motor + self.m_batt + self.m_payload)
+        
+        # On estime que le centre de gravité de la structure vide est proche du foyer aérodynamique
+        x_structure = self.neutral_point_x
+        
+        # Formule du barycentre
+        sum_moments = (self.m_motor * self.x_motor) + \
+                      (self.m_batt * self.x_batt) + \
+                      (self.m_payload * self.x_payload) + \
+                      (self.m_structure * x_structure)
+                      
+        self.actual_cg_x = sum_moments / self.mass
+        
+        # Calcul de la marge statique réelle (en % de la MAC)
+        # MS > 0 = Stable (CG devant le foyer). MS < 0 = Instable.
+        self.actual_static_margin = ((self.neutral_point_x - self.actual_cg_x) / self.main_wing.mean_aerodynamic_chord) * 100
 
 
 # --- Test rapide ---
