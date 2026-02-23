@@ -47,6 +47,7 @@ class Drone:
         
         self.n_max_struct = 5.0
         self.n_min_struct = -2.0
+        self.oswald_e = 0.85
         
         self.required_surface = self._calculate_required_surface()
         
@@ -123,9 +124,7 @@ class Drone:
         cl_required = weight / (dynamic_pressure_cruise * self.main_wing.surface)
         lift_slope = 0.1 
         
-        # Sécurisation de la donnée : si cl_0 n'existe pas, on prend 0.2 par défaut
         cl_0 = getattr(self.airfoil, 'cl_0', 0.2)
-        
         self.wing_incidence = (cl_required - cl_0) / lift_slope
 
     def _calculate_actual_cg(self):
@@ -157,6 +156,7 @@ class Drone:
             e += 0.05
             
         if e > 0.98: e = 0.98 
+        self.oswald_e = e
         
         cdi = (self.cz_cruise ** 2) / (math.pi * e * self.main_wing.aspect_ratio)
         
@@ -197,3 +197,43 @@ class Drone:
             n_neg.append(max(n_n, self.n_min_struct))
             
         return v_list, n_pos, n_neg, v_s, v_a, v_ne, self.n_max_struct, self.n_min_struct
+
+    def get_polar_data(self):
+        cl_0 = getattr(self.airfoil, 'cl_0', 0.2)
+        cl_max = self.airfoil.cl_max
+        lift_slope = 0.1
+        
+        integration_penalty = 0.01 
+        if self.tail_type == "Aile Volante":
+            integration_penalty = 0.003
+        cd0 = self.airfoil.cd_0 + integration_penalty
+        
+        alphas = list(range(-5, 21))
+        cz_list = []
+        cd_list = []
+        finesse_list = []
+        
+        alpha_stall = (cl_max - cl_0) / lift_slope
+        
+        for alpha in alphas:
+            cz = cl_0 + lift_slope * alpha
+            
+            if cz > cl_max:
+                cz = cl_max - 0.05 * (alpha - alpha_stall)
+            elif cz < -cl_max * 0.6:
+                cz = -cl_max * 0.6
+                
+            cdi = (cz ** 2) / (math.pi * self.oswald_e * self.main_wing.aspect_ratio)
+            
+            if alpha > alpha_stall:
+                cd = cd0 + cdi + 0.05 * (alpha - alpha_stall)**2
+            else:
+                cd = cd0 + cdi
+                
+            cz_list.append(cz)
+            cd_list.append(cd)
+            
+            finesse = cz / cd if cd > 0 else 0
+            finesse_list.append(finesse)
+            
+        return alphas, cz_list, cd_list, finesse_list

@@ -362,8 +362,15 @@ class WyngWindow(QMainWindow):
         self.ax_vn = self.figure_vn.add_subplot(111)
         layout_vn.addWidget(self.canvas_vn)
         
+        self.tab_polars = QWidget()
+        layout_polars = QVBoxLayout(self.tab_polars)
+        self.figure_polars = Figure()
+        self.canvas_polars = FigureCanvas(self.figure_polars)
+        layout_polars.addWidget(self.canvas_polars)
+        
         self.plot_tabs.addTab(self.tab_3d, "Vue 3D")
         self.plot_tabs.addTab(self.tab_vn, "Diagramme V-n")
+        self.plot_tabs.addTab(self.tab_polars, "Polaires Aéro")
         
         right_layout.addWidget(self.plot_tabs)
         
@@ -602,6 +609,7 @@ class WyngWindow(QMainWindow):
             
             self._draw_drone(drone)
             self._draw_vn(drone)
+            self._draw_polars(drone)
 
         except ValueError:
             pass
@@ -751,6 +759,38 @@ class WyngWindow(QMainWindow):
         self.ax_vn.fill_between(v_list, n_neg, n_pos, color='green', alpha=0.1)
         
         self.canvas_vn.draw()
+
+    def _draw_polars(self, drone):
+        self.figure_polars.clear()
+        
+        ax1 = self.figure_polars.add_subplot(131)
+        ax2 = self.figure_polars.add_subplot(132)
+        ax3 = self.figure_polars.add_subplot(133)
+        
+        alphas, cz_list, cd_list, finesse_list = drone.get_polar_data()
+        
+        ax1.plot(alphas, cz_list, 'b-', linewidth=2)
+        ax1.axhline(0, color='black', linewidth=0.8)
+        ax1.axvline(0, color='black', linewidth=0.8)
+        ax1.set_title("Portance (Cz) vs Angle (α)")
+        ax1.set_xlabel("Angle d'attaque α (°)")
+        ax1.set_ylabel("Cz")
+        ax1.grid(True, linestyle=':')
+        
+        ax2.plot(cd_list, cz_list, 'r-', linewidth=2)
+        ax2.set_title("Polaire (Cz vs Cx)")
+        ax2.set_xlabel("Traînée Cx")
+        ax2.set_ylabel("Portance Cz")
+        ax2.grid(True, linestyle=':')
+        
+        ax3.plot(alphas, finesse_list, 'g-', linewidth=2)
+        ax3.set_title("Finesse (L/D) vs Angle (α)")
+        ax3.set_xlabel("Angle d'attaque α (°)")
+        ax3.set_ylabel("Finesse")
+        ax3.grid(True, linestyle=':')
+        
+        self.figure_polars.subplots_adjust(wspace=0.35, bottom=0.15)
+        self.canvas_polars.draw()
 
     def export_results(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Sauvegarder la Note de Calcul", "", "Text Files (*.txt)")
