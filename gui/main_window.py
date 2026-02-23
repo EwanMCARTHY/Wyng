@@ -18,7 +18,7 @@ class WyngWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Wyng - Dimensionnement Aérodynamique")
         self.setWindowIcon(QIcon('wyng.ico'))
-        self.setMinimumSize(1200, 800)
+        self.setMinimumSize(1300, 850)
         
         self.db = AirfoilDatabase()
         self._setup_ui()
@@ -95,7 +95,7 @@ class WyngWindow(QMainWindow):
         self.ax.set_ylim3d([y_center - y_range, y_center + y_range])
         self.ax.set_zlim3d([z_center - z_range, z_center + z_range])
         
-        self.canvas.draw()
+        self.canvas_3d.draw()
 
     def reset_3d_view(self):
         self.view_needs_reset = True
@@ -343,14 +343,29 @@ class WyngWindow(QMainWindow):
         self.results_box.setLayout(results_layout)
         right_layout.addWidget(self.results_box)
         
-        self.figure = Figure()
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.mpl_connect('scroll_event', self._on_scroll)
-        right_layout.addWidget(self.canvas)
+        self.plot_tabs = QTabWidget()
         
+        self.tab_3d = QWidget()
+        layout_3d = QVBoxLayout(self.tab_3d)
+        self.figure_3d = Figure()
+        self.canvas_3d = FigureCanvas(self.figure_3d)
+        self.canvas_3d.mpl_connect('scroll_event', self._on_scroll)
+        layout_3d.addWidget(self.canvas_3d)
         self.btn_reset_view = QPushButton("Réinitialiser la vue 3D")
         self.btn_reset_view.clicked.connect(self.reset_3d_view)
-        right_layout.addWidget(self.btn_reset_view)
+        layout_3d.addWidget(self.btn_reset_view)
+        
+        self.tab_vn = QWidget()
+        layout_vn = QVBoxLayout(self.tab_vn)
+        self.figure_vn = Figure()
+        self.canvas_vn = FigureCanvas(self.figure_vn)
+        self.ax_vn = self.figure_vn.add_subplot(111)
+        layout_vn.addWidget(self.canvas_vn)
+        
+        self.plot_tabs.addTab(self.tab_3d, "Vue 3D")
+        self.plot_tabs.addTab(self.tab_vn, "Diagramme V-n")
+        
+        right_layout.addWidget(self.plot_tabs)
         
         main_layout.addLayout(left_layout, 1) 
         main_layout.addLayout(right_layout, 3)
@@ -439,7 +454,6 @@ class WyngWindow(QMainWindow):
             self.htail_sweep_label.setText(f"Flèche empennage : {h_sweep:.1f} °")
             self.vh_label.setText(f"Volume Horizontal (Vh) : {vh:.2f}")
             self.vv_label.setText(f"Volume Vertical (Vv) : {vv:.3f}")
-            
             self.lbl_x_motor.setText(f"Position Moteur : {x_motor:.2f} m")
             self.lbl_y_motor.setText(f"Position Y Moteurs : {y_motor:.2f} m")
             self.lbl_x_batt.setText(f"Position Batterie : {x_batt:.2f} m")
@@ -587,13 +601,14 @@ class WyngWindow(QMainWindow):
             self.export_cad_button.setEnabled(True)
             
             self._draw_drone(drone)
+            self._draw_vn(drone)
 
         except ValueError:
             pass
 
     def _draw_drone(self, drone):
         if not hasattr(self, 'ax'):
-            self.ax = self.figure.add_subplot(111, projection='3d')
+            self.ax = self.figure_3d.add_subplot(111, projection='3d')
             self.view_needs_reset = True
             
         if getattr(self, 'view_needs_reset', False):
@@ -670,7 +685,6 @@ class WyngWindow(QMainWindow):
                 vz = [0, z_tip, z_tip, 0]
                 add_symmetric_poly(vx, vy, vz, 'mediumorchid')
 
-        # --- DESSIN DES MOTEURS ---
         if drone.num_motors == 1:
             self.ax.scatter([drone.x_motor], [0], [0], color='orange', s=40, label='Moteur')
         else:
@@ -712,7 +726,31 @@ class WyngWindow(QMainWindow):
         self.view_needs_reset = False
         
         self.ax.legend(loc='upper right', fontsize='x-small')
-        self.canvas.draw()
+        self.canvas_3d.draw()
+
+    def _draw_vn(self, drone):
+        self.ax_vn.clear()
+        v_list, n_pos, n_neg, v_s, v_a, v_ne, n_max, n_min = drone.get_vn_data()
+        
+        self.ax_vn.plot(v_list, n_pos, color='blue', linewidth=2, label="Limite Positive (+5g)")
+        self.ax_vn.plot(v_list, n_neg, color='red', linewidth=2, label="Limite Négative (-2g)")
+        
+        self.ax_vn.plot([v_ne, v_ne], [n_min, n_max], color='black', linewidth=2, linestyle='--', label=f"VNE ({v_ne:.1f} m/s)")
+        self.ax_vn.plot([v_a, v_a], [0, n_max], color='green', linestyle=':', label=f"Va ({v_a:.1f} m/s)")
+        self.ax_vn.plot([v_s, v_s], [0, 1], color='orange', linestyle=':', label=f"Vs ({v_s:.1f} m/s)")
+        
+        self.ax_vn.axhline(0, color='black', linewidth=1)
+        self.ax_vn.axhline(1, color='gray', linewidth=1, linestyle=':')
+        
+        self.ax_vn.set_title("Diagramme V-n (Enveloppe de vol)")
+        self.ax_vn.set_xlabel("Vitesse V (m/s)")
+        self.ax_vn.set_ylabel("Facteur de charge n (g)")
+        self.ax_vn.grid(True, linestyle='--')
+        self.ax_vn.legend(loc='lower left', fontsize='small')
+        
+        self.ax_vn.fill_between(v_list, n_neg, n_pos, color='green', alpha=0.1)
+        
+        self.canvas_vn.draw()
 
     def export_results(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Sauvegarder la Note de Calcul", "", "Text Files (*.txt)")

@@ -1,5 +1,6 @@
+import math
 from core.wing import Wing
-from core.airfoil import Airfoil, AirfoilDatabase
+from core.airfoil import Airfoil
 
 class Drone:
     def __init__(self, mass: float, v_stall: float, v_cruise: float, airfoil: Airfoil,
@@ -44,6 +45,9 @@ class Drone:
         self.eta_prop = eta_prop
         self.eta_motor = eta_motor
         
+        self.n_max_struct = 5.0
+        self.n_min_struct = -2.0
+        
         self.required_surface = self._calculate_required_surface()
         
         self.main_wing = Wing(
@@ -75,7 +79,6 @@ class Drone:
         return weight / (dynamic_pressure_stall * self.airfoil.cl_max)
 
     def _calculate_tails(self):
-        import math
         if self.tail_type == "Aile Volante":
             self.h_tail = None
             self.v_tail = None
@@ -97,39 +100,50 @@ class Drone:
             self.v_tail_obj = Wing(surface=vtail_surface, aspect_ratio=4.0, taper_ratio=0.7, sweep_angle_deg=self.h_tail_sweep)
             self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7, sweep_angle_deg=self.h_tail_sweep)
             self.v_tail = None
-    
-    def _calculate_cg_and_stability(self, static_margin: float = 0.15):
-        """Calcule le foyer global et la position cible du CG."""
-        
-        # Si c'est une aile volante, le foyer global EST le foyer de l'aile
-        if self.tail_type == "Aile Volante" or self.h_tail is None:
+
+    def _calculate_cg_and_stability(self):
+        static_margin_target = 0.15 
+        if self.tail_type == "Aile Volante":
             self.neutral_point_x = self.main_wing.aerodynamic_center_x
         else:
-            # Calcul barycentrique classique avec empennage
-            h_tail_ac_x = self.tail_arm + self.h_tail.aerodynamic_center_x
-            numerator = (self.main_wing.aerodynamic_center_x * self.main_wing.surface) + \
-                        (h_tail_ac_x * self.h_tail.surface)
-            denominator = self.main_wing.surface + self.h_tail.surface
-            self.neutral_point_x = numerator / denominator
-        
-        # Marge statique (Le CG devant le Foyer)
-        margin_distance = static_margin * self.main_wing.mean_aerodynamic_chord
-        self.cg_x = self.neutral_point_x - margin_distance
-    
+            mac_wing = self.main_wing.mean_aerodynamic_chord
+            area_wing = self.main_wing.surface
+            x_ac_wing = self.main_wing.aerodynamic_center_x
+            
+            area_tail = self.h_tail.surface
+            x_ac_tail = self.tail_arm + self.h_tail.aerodynamic_center_x
+            
+            self.neutral_point_x = (x_ac_wing * area_wing + x_ac_tail * area_tail) / (area_wing + area_tail)
+
+        self.cg_x = self.neutral_point_x - (static_margin_target * self.main_wing.mean_aerodynamic_chord)
+
     def _calculate_incidence(self):
-        """Calcule l'angle de calage de l'aile pour minimiser la traînée en croisière."""
         weight = self.mass * self.g
         dynamic_pressure_cruise = 0.5 * self.rho * (self.v_cruise ** 2)
+        cl_required = weight / (dynamic_pressure_cruise * self.main_wing.surface)
+        lift_slope = 0.1 
         
-        # Quel Cz faut-il pour voler en palier à la vitesse de croisière ?
-        cz_cruise = weight / (dynamic_pressure_cruise * self.main_wing.surface)
+        # Sécurisation de la donnée : si cl_0 n'existe pas, on prend 0.2 par défaut
+        cl_0 = getattr(self.airfoil, 'cl_0', 0.2)
         
-        # Pente de portance standard (~0.11 par degré) et prise en compte du alpha_0 du profil
-        self.wing_incidence = (cz_cruise / 0.11) + self.airfoil.alpha_0
-    
+        self.wing_incidence = (cl_required - cl_0) / lift_slope
+
+    def _calculate_actual_cg(self):
+        self.total_motor_mass = self.num_motors * self.m_motor
+        self.m_structure = self.mass - (self.total_motor_mass + self.m_batt + self.m_payload)
+        
+        x_structure = self.neutral_point_x
+        
+        sum_moments = (self.total_motor_mass * self.x_motor) + \
+                      (self.m_batt * self.x_batt) + \
+                      (self.m_payload * self.x_payload) + \
+                      (self.m_structure * x_structure)
+                      
+        self.actual_cg_x = sum_moments / self.mass
+        
+        self.actual_static_margin = ((self.neutral_point_x - self.actual_cg_x) / self.main_wing.mean_aerodynamic_chord) * 100
+
     def _calculate_aerodynamics(self):
-        import math
-        
         dynamic_pressure_cruise = 0.5 * self.rho * (self.v_cruise ** 2)
         self.cz_cruise = (self.mass * self.g) / (dynamic_pressure_cruise * self.main_wing.surface)
         
@@ -160,39 +174,26 @@ class Drone:
         
         self.thrust_req_g = (drag_force / self.g) * 1000.0
         self.elec_power_req = self.power_required / (self.eta_prop * self.eta_motor)
-    
-    def _calculate_actual_cg(self):
-        self.total_motor_mass = self.num_motors * self.m_motor
-        self.m_structure = self.mass - (self.total_motor_mass + self.m_batt + self.m_payload)
-        
-        x_structure = self.neutral_point_x
-        
-        sum_moments = (self.total_motor_mass * self.x_motor) + \
-                      (self.m_batt * self.x_batt) + \
-                      (self.m_payload * self.x_payload) + \
-                      (self.m_structure * x_structure)
-                      
-        self.actual_cg_x = sum_moments / self.mass
-        
-        self.actual_static_margin = ((self.neutral_point_x - self.actual_cg_x) / self.main_wing.mean_aerodynamic_chord) * 100
 
-
-# --- Test rapide ---
-if __name__ == "__main__":
-    db = AirfoilDatabase()
-    selected_airfoil = db.get_airfoil("Selig 1223")
-    
-    if selected_airfoil:
-        # On ajoute un bras de levier de 0.8 mètres (distance entre l'aile et la queue)
-        my_drone = Drone(mass=2.5, v_stall=10.0, airfoil=selected_airfoil, aspect_ratio=10, tail_arm=0.8)
+    def get_vn_data(self):
+        cl_max = self.airfoil.cl_max
+        cl_min = -0.5 * cl_max
+        w = self.mass * self.g
         
-        print(f"--- Dimensionnement Wyng : Drone de {my_drone.mass} kg ---")
-        print(f"Surface alaire requise : {round(my_drone.required_surface, 3)} m2")
+        v_s = math.sqrt((2 * w) / (self.rho * self.main_wing.surface * cl_max))
+        v_a = v_s * math.sqrt(self.n_max_struct)
+        v_ne = self.v_cruise * 2.5 
         
-        print("\n--- Empennage Horizontal ---")
-        for key, value in my_drone.h_tail.get_summary().items():
-            print(f"{key}: {value}")
+        v_list = [v for v in range(0, int(v_ne) + 5)]
+        n_pos = []
+        n_neg = []
+        
+        for v in v_list:
+            q = 0.5 * self.rho * (v**2)
+            n_p = (q * self.main_wing.surface * cl_max) / w
+            n_n = (q * self.main_wing.surface * cl_min) / w
             
-        print("\n--- Empennage Vertical (Dérive) ---")
-        for key, value in my_drone.v_tail.get_summary().items():
-            print(f"{key}: {value}")
+            n_pos.append(min(n_p, self.n_max_struct))
+            n_neg.append(max(n_n, self.n_min_struct))
+            
+        return v_list, n_pos, n_neg, v_s, v_a, v_ne, self.n_max_struct, self.n_min_struct
