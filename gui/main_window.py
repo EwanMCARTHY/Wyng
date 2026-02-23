@@ -1,4 +1,5 @@
 import math
+import json
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -104,6 +105,17 @@ class WyngWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
+        
+        left_layout = QVBoxLayout()
+        
+        project_layout = QHBoxLayout()
+        self.btn_load_proj = QPushButton("Ouvrir Projet")
+        self.btn_load_proj.clicked.connect(self.load_project)
+        self.btn_save_proj = QPushButton("Sauvegarder Projet")
+        self.btn_save_proj.clicked.connect(self.save_project)
+        project_layout.addWidget(self.btn_load_proj)
+        project_layout.addWidget(self.btn_save_proj)
+        left_layout.addLayout(project_layout)
         
         self.tabs = QTabWidget()
         self.tabs.setMaximumWidth(400)
@@ -243,7 +255,6 @@ class WyngWindow(QMainWindow):
         layout_propulsion.addStretch()
         self.tabs.addTab(tab_propulsion, "Propulsion")
         
-        left_layout = QVBoxLayout()
         left_layout.addWidget(self.tabs)
         
         export_layout = QHBoxLayout()
@@ -558,9 +569,6 @@ class WyngWindow(QMainWindow):
             pass
 
     def _draw_drone(self, drone):
-        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-        import math
-        
         if not hasattr(self, 'ax'):
             self.ax = self.figure.add_subplot(111, projection='3d')
             self.view_needs_reset = True
@@ -696,3 +704,104 @@ class WyngWindow(QMainWindow):
                 QMessageBox.information(self, "Succès", "Données CAO exportées avec succès.")
             except Exception as e:
                 QMessageBox.critical(self, "Erreur", f"Erreur lors de l'exportation CAO : {e}")
+
+    def save_project(self):
+        file_path, _ = QFileDialog.getSaveFileName(self, "Sauvegarder le projet Wyng", "", "Wyng Project (*.wyng)")
+        if file_path:
+            try:
+                state = {
+                    'mass': self.mass_input.text(),
+                    'v_stall': self.vstall_input.text(),
+                    'v_cruise': self.vcruise_input.text(),
+                    'speed_unit': self.speed_unit_combo.currentText(),
+                    'airfoil': self.airfoil_combo.currentText(),
+                    'wing_shape': self.wing_shape_combo.currentText(),
+                    'ar': self.ar_slider.value(),
+                    'sweep': self.sweep_slider.value(),
+                    'dihedral': self.dihedral_slider.value(),
+                    'kink_pos': self.kink_pos_slider.value(),
+                    'kink_angle': self.kink_angle_slider.value(),
+                    'washout': self.washout_slider.value(),
+                    'has_winglets': self.winglets_cb.isChecked(),
+                    'tail_type': self.tail_combo.currentText(),
+                    'tail_arm': self.tailarm_slider.value(),
+                    'nose': self.nose_slider.value(),
+                    'h_sweep': self.htail_sweep_slider.value(),
+                    'vh': self.vh_slider.value(),
+                    'vv': self.vv_slider.value(),
+                    'm_motor': self.m_motor_input.text(),
+                    'x_motor': self.x_motor_slider.value(),
+                    'm_batt': self.m_batt_input.text(),
+                    'x_batt': self.x_batt_slider.value(),
+                    'm_payload': self.m_payload_input.text(),
+                    'x_payload': self.x_payload_slider.value(),
+                    'eta_prop': self.eta_prop_slider.value(),
+                    'eta_motor': self.eta_motor_slider.value()
+                }
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(state, f, indent=4)
+                QMessageBox.information(self, "Succès", "Projet sauvegardé avec succès.")
+            except Exception as e:
+                QMessageBox.critical(self, "Erreur", f"Erreur lors de la sauvegarde : {e}")
+
+    def load_project(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Ouvrir un projet Wyng", "", "Wyng Project (*.wyng)")
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    state = json.load(f)
+                
+                widgets = [
+                    self.mass_input, self.vstall_input, self.vcruise_input, self.speed_unit_combo,
+                    self.airfoil_combo, self.wing_shape_combo, self.ar_slider, self.sweep_slider,
+                    self.dihedral_slider, self.kink_pos_slider, self.kink_angle_slider, self.washout_slider,
+                    self.winglets_cb, self.tail_combo, self.tailarm_slider, self.nose_slider,
+                    self.htail_sweep_slider, self.vh_slider, self.vv_slider, self.m_motor_input,
+                    self.x_motor_slider, self.m_batt_input, self.x_batt_slider, self.m_payload_input,
+                    self.x_payload_slider, self.eta_prop_slider, self.eta_motor_slider
+                ]
+                
+                for w in widgets:
+                    w.blockSignals(True)
+                
+                self.mass_input.setText(state.get('mass', '2.5'))
+                self.vstall_input.setText(state.get('v_stall', '10.0'))
+                self.vcruise_input.setText(state.get('v_cruise', '15.0'))
+                self.speed_unit_combo.setCurrentText(state.get('speed_unit', 'm/s'))
+                self.tail_combo.setCurrentText(state.get('tail_type', 'Classique'))
+                
+                is_flying_wing = (self.tail_combo.currentText() == "Aile Volante")
+                self.airfoil_combo.clear()
+                self.airfoil_combo.addItems(self.db.list_airfoils(require_autostable=is_flying_wing))
+                self.airfoil_combo.setCurrentText(state.get('airfoil', 'Clark Y'))
+                
+                self.wing_shape_combo.setCurrentText(state.get('wing_shape', 'Trapézoïdale'))
+                self.ar_slider.setValue(state.get('ar', 80))
+                self.sweep_slider.setValue(state.get('sweep', 0))
+                self.dihedral_slider.setValue(state.get('dihedral', 0))
+                self.kink_pos_slider.setValue(state.get('kink_pos', 45))
+                self.kink_angle_slider.setValue(state.get('kink_angle', -300))
+                self.washout_slider.setValue(state.get('washout', 0))
+                self.winglets_cb.setChecked(state.get('has_winglets', False))
+                self.tailarm_slider.setValue(state.get('tail_arm', 100))
+                self.nose_slider.setValue(state.get('nose', 20))
+                self.htail_sweep_slider.setValue(state.get('h_sweep', 0))
+                self.vh_slider.setValue(state.get('vh', 50))
+                self.vv_slider.setValue(state.get('vv', 40))
+                self.m_motor_input.setText(state.get('m_motor', '0.15'))
+                self.x_motor_slider.setValue(state.get('x_motor', -20))
+                self.m_batt_input.setText(state.get('m_batt', '0.40'))
+                self.x_batt_slider.setValue(state.get('x_batt', 0))
+                self.m_payload_input.setText(state.get('m_payload', '0.25'))
+                self.x_payload_slider.setValue(state.get('x_payload', 10))
+                self.eta_prop_slider.setValue(state.get('eta_prop', 70))
+                self.eta_motor_slider.setValue(state.get('eta_motor', 80))
+                
+                for w in widgets:
+                    w.blockSignals(False)
+                    
+                self.view_needs_reset = True
+                self.calculate_geometry()
+                QMessageBox.information(self, "Succès", "Projet chargé avec succès.")
+            except Exception as e:
+                QMessageBox.critical(self, "Erreur", f"Erreur lors du chargement : {e}")
