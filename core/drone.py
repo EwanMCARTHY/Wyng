@@ -130,10 +130,24 @@ class Drone:
         weight = self.mass * self.g
         dynamic_pressure_cruise = 0.5 * self.rho * (self.v_cruise ** 2)
         cl_required = weight / (dynamic_pressure_cruise * self.main_wing.surface)
-        lift_slope = 0.1 
+        
+        # Calcul de la pente de portance 3D (Théorie de Diederich pour voilure avec flèche)
+        # a_0 est la pente 2D théorique d'un profil mince (environ 2*pi par radian)
+        a_0 = 2 * math.pi
+        AR = self.main_wing.aspect_ratio
+        sweep_rad = self.main_wing.sweep_angle_rad
+        
+        # Formule de Diederich (résultat en 1/radian)
+        # Elle prend en compte la perte d'efficacité due à l'allongement fini et à la flèche
+        lift_slope_rad = (a_0 * AR) / (2 + math.sqrt(4 + (AR**2 / math.cos(sweep_rad)**2)))
+        
+        # Conversion de la pente en 1/degré pour s'adapter aux repères de l'application
+        lift_slope_deg = math.radians(lift_slope_rad)
         
         cl_0 = getattr(self.airfoil, 'cl_0', 0.2)
-        self.wing_incidence = (cl_required - cl_0) / lift_slope
+        
+        # L'incidence de croisière (en degrés) est désormais calculée sur le modèle 3D
+        self.wing_incidence = (cl_required - cl_0) / lift_slope_deg
 
     def _calculate_actual_cg(self):
         self.total_motor_mass = self.num_motors * self.m_motor
@@ -154,20 +168,30 @@ class Drone:
         dynamic_pressure_cruise = 0.5 * self.rho * (self.v_cruise ** 2)
         self.cz_cruise = (self.mass * self.g) / (dynamic_pressure_cruise * self.main_wing.surface)
         
-        e = 0.85
-        if self.wing_shape == "Delta":
-            e = 0.70
-        elif self.wing_shape == "Lambda":
-            e = 0.88
+        # 1. Calcul dynamique du coefficient d'Oswald (e) - Formules de Raymer
+        AR = self.main_wing.aspect_ratio
+        sweep_deg = abs(self.main_wing.sweep_angle_deg)
+        sweep_rad = self.main_wing.sweep_angle_rad
+        
+        if sweep_deg < 25.0:
+            # Approximation pour ailes droites ou à faible flèche
+            e = 1.78 * (1 - 0.045 * AR**0.68) - 0.64
+        else:
+            # Approximation pour ailes en flèche
+            e = 4.61 * (1 - 0.045 * AR**0.68) * (math.cos(sweep_rad)**0.15) - 3.1
             
+        # Bonus empirique des winglets (réduction de la traînée induite)
         if self.main_wing.has_winglets:
-            e += 0.05
+            e *= 1.15
             
-        if e > 0.98: e = 0.98 
-        self.oswald_e = e
+        # Sécurité mathématique pour rester dans des limites physiques plausibles
+        self.oswald_e = max(0.5, min(e, 0.98))
         
-        cdi = (self.cz_cruise ** 2) / (math.pi * e * self.main_wing.aspect_ratio)
+        # 2. Calcul de la traînée
+        cdi = (self.cz_cruise ** 2) / (math.pi * self.oswald_e * AR)
         
+        # Note : La traînée parasite (cd0) complète sera traitée dans le Chantier 3.
+        # Pour l'instant, on conserve l'ancienne base pour que le code continue de tourner.
         integration_penalty = 0.01 
         if self.tail_type == "Aile Volante":
             integration_penalty = 0.003
