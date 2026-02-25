@@ -38,7 +38,8 @@ class GeneticOptimizer(QThread):
             if self.target_mode == "Maximiser la Finesse globale (L/D)":
                 score = drone.finesse
             elif self.target_mode == "Minimiser la Puissance requise (Autonomie)":
-                score = 10000.0 / max(1.0, drone.power_required) 
+                # L'objectif est maintenant de maximiser le temps de vol réel en minutes
+                score = drone.endurance_min
             else: 
                 score = drone.actual_static_margin
             

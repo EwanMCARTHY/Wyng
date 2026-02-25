@@ -3,10 +3,18 @@ from core.wing import Wing
 from core.airfoil import Airfoil
 
 class Drone:
+    # Constantes statistiques empiriques (Bases de données historiques type Raymer/Roskam)
+    BEHAVIOR_PRESETS = {
+        "Planeur / Haute Finesse": {"vh": 0.35, "vv": 0.025},
+        "Classique / Polyvalent": {"vh": 0.50, "vv": 0.04},
+        "Agile / Voltige": {"vh": 0.70, "vv": 0.06}
+    }
+
     def __init__(self, mass: float, v_stall: float, v_cruise: float, airfoil: Airfoil,
                  aspect_ratio: float = 8.0, taper_ratio: float = 0.6,
                  sweep_angle: float = 0.0, dihedral_angle: float = 0.0,
-                 tail_arm: float = 1.0, vh: float = 0.5, vv: float = 0.04,
+                 tail_arm: float = 1.0, 
+                 flight_behavior: str = "Classique / Polyvalent", vh: float = None, vv: float = None,
                  nose_length: float = 0.2, tail_type: str = "Classique",
                  h_tail_sweep: float = 0.0, wing_shape: str = "Trapézoïdale",
                  htail_shape: str = "Trapézoïdale",
@@ -26,8 +34,13 @@ class Drone:
         self.airfoil = airfoil
         
         self.tail_arm = tail_arm
-        self.vh = vh
-        self.vv = vv
+        
+        # 1. Gestion intelligente des volumes d'empennage
+        # Si aucune valeur n'est forcée, on applique le préréglage statistique du dictionnaire
+        preset = self.BEHAVIOR_PRESETS.get(flight_behavior, self.BEHAVIOR_PRESETS["Classique / Polyvalent"])
+        self.vh = preset["vh"] if vh is None else vh
+        self.vv = preset["vv"] if vv is None else vv
+        
         self.nose_length = nose_length
         self.tail_type = tail_type
         self.h_tail_sweep = h_tail_sweep
@@ -44,7 +57,8 @@ class Drone:
         self.m_payload = m_payload
         self.x_payload = x_payload
         
-        self.eta_prop = eta_prop
+        # 2. Clarification des rendements propulsifs
+        self.eta_prop_cruise = eta_prop
         self.eta_motor = eta_motor
         
         self.n_max_struct = 5.0
@@ -171,15 +185,41 @@ class Drone:
         
         cl_0 = getattr(self.airfoil, 'cl_0', 0.2)
         
-        # L'incidence de croisière (en degrés) est désormais calculée sur le modèle 3D
+        # L'incidence de croisière (en degrés) calculée sur le modèle 3D
         self.wing_incidence = (cl_required - cl_0) / lift_slope_deg
 
     def _calculate_actual_cg(self):
+        # 1. Bilan des masses connues
         self.total_motor_mass = self.num_motors * self.m_motor
         self.m_structure = self.mass - (self.total_motor_mass + self.m_batt + self.m_payload)
         
-        x_structure = self.neutral_point_x
+        if self.m_structure <= 0.0:
+            self.m_structure = 0.01
         
+        # 2. Décomposition du centre de gravité de la structure (Bilan massique)
+        if self.tail_type == "Aile Volante":
+            # Pour une aile volante, la structure se résume à l'aile elle-même
+            x_structure = self.main_wing.aerodynamic_center_x
+        else:
+            # Modèle statistique de répartition des masses pour un drone classique
+            m_wing = self.m_structure * 0.45
+            m_fuse = self.m_structure * 0.40
+            m_tail = self.m_structure * 0.15
+            
+            # Positionnement spatial du centre de gravité de chaque composant
+            x_cg_wing = self.main_wing.aerodynamic_center_x
+            
+            # Hypothèse : le fuselage va du nez jusqu'à l'empennage, son CG est au centre géométrique
+            l_fuselage = self.nose_length + self.main_wing.root_chord + self.tail_arm
+            x_cg_fuse = -self.nose_length + (l_fuselage / 2.0)
+            
+            # Le CG de l'empennage se situe au bout du bras de levier
+            x_cg_tail = self.tail_arm
+            
+            # Calcul du barycentre réel de la structure à vide
+            x_structure = (m_wing * x_cg_wing + m_fuse * x_cg_fuse + m_tail * x_cg_tail) / self.m_structure
+        
+        # 3. Calcul du centre de gravité global (Drone paré au décollage)
         sum_moments = (self.total_motor_mass * self.x_motor) + \
                       (self.m_batt * self.x_batt) + \
                       (self.m_payload * self.x_payload) + \
@@ -187,7 +227,8 @@ class Drone:
                       
         self.actual_cg_x = sum_moments / self.mass
         
-        self.actual_static_margin = ((self.neutral_point_x - self.actual_cg_x) / self.main_wing.mean_aerodynamic_chord) * 100
+        # 4. Marge statique réelle (Indicateur de stabilité)
+        self.actual_static_margin = ((self.neutral_point_x - self.actual_cg_x) / self.main_wing.mean_aerodynamic_chord) * 100.0
 
     def _calculate_aerodynamics(self):
         dynamic_pressure_cruise = 0.5 * self.rho * (self.v_cruise ** 2)
@@ -199,23 +240,17 @@ class Drone:
         sweep_rad = self.main_wing.sweep_angle_rad
         
         if sweep_deg < 25.0:
-            # Approximation pour ailes droites ou à faible flèche
             e = 1.78 * (1 - 0.045 * AR**0.68) - 0.64
         else:
-            # Approximation pour ailes en flèche
             e = 4.61 * (1 - 0.045 * AR**0.68) * (math.cos(sweep_rad)**0.15) - 3.1
             
-        # Bonus empirique des winglets (réduction de la traînée induite)
         if self.main_wing.has_winglets:
             e *= 1.15
             
-        # Sécurité mathématique pour rester dans des limites physiques plausibles
         self.oswald_e = max(0.5, min(e, 0.98))
         
         # 2. Calcul de la traînée
         cdi = (self.cz_cruise ** 2) / (math.pi * self.oswald_e * AR)
-        
-        # Calcul de la traînée parasite via Component Build-up Method
         cd0 = self._estimate_cd0()
         
         self.cd_total = cd0 + cdi
@@ -225,7 +260,18 @@ class Drone:
         self.power_required = drag_force * self.v_cruise
         
         self.thrust_req_g = (drag_force / self.g) * 1000.0
-        self.elec_power_req = self.power_required / (self.eta_prop * self.eta_motor)
+        self.elec_power_req = self.power_required / (self.eta_prop_cruise * self.eta_motor)
+        
+        # 3. Calcul de l'autonomie et de la distance franchissable
+        # Hypothèse d'une densité énergétique typique pour une batterie LiPo (150 Wh/kg)
+        energy_density_wh_kg = 150.0 
+        battery_capacity_wh = self.m_batt * energy_density_wh_kg
+        
+        # Temps de vol = Capacité (Wh) / Puissance consommée (W)
+        flight_time_hours = battery_capacity_wh / self.elec_power_req if self.elec_power_req > 0 else 0
+        
+        self.endurance_min = flight_time_hours * 60.0
+        self.range_km = flight_time_hours * (self.v_cruise * 3.6) # Conversion de m/s en km/h
 
     def get_vn_data(self):
         cl_max = self.airfoil.cl_max
