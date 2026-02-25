@@ -1,11 +1,14 @@
 import math
 import json
+import time
+import random
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QComboBox, QPushButton,
                              QFileDialog, QMessageBox, QSlider, QCheckBox,
-                             QGroupBox, QGridLayout, QFormLayout, QTabWidget)
+                             QGroupBox, QGridLayout, QFormLayout, QTabWidget,
+                             QApplication, QListWidget, QStackedWidget, QProgressBar)
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -18,7 +21,7 @@ class WyngWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Wyng - Dimensionnement Aérodynamique")
         self.setWindowIcon(QIcon('wyng.ico'))
-        self.setMinimumSize(1300, 850)
+        self.setMinimumSize(1450, 900) 
         
         self.db = AirfoilDatabase()
         self._setup_ui()
@@ -106,7 +109,7 @@ class WyngWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
         
-        left_layout = QVBoxLayout()
+        left_main_layout = QVBoxLayout()
         
         project_layout = QHBoxLayout()
         self.btn_load_proj = QPushButton("Ouvrir Projet")
@@ -115,169 +118,201 @@ class WyngWindow(QMainWindow):
         self.btn_save_proj.clicked.connect(self.save_project)
         project_layout.addWidget(self.btn_load_proj)
         project_layout.addWidget(self.btn_save_proj)
-        left_layout.addLayout(project_layout)
+        left_main_layout.addLayout(project_layout)
         
-        self.tabs = QTabWidget()
-        self.tabs.setMaximumWidth(400)
+        settings_layout = QHBoxLayout()
+        
+        # --- MENU LATÉRAL THÈME SOMBRE ---
+        self.nav_list = QListWidget()
+        self.nav_list.setMaximumWidth(180)
+        self.nav_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #1e1e1e;
+                border-radius: 5px;
+                background-color: #2b2b2b;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 12px 15px;
+                border-bottom: 1px solid #3a3a3a;
+                color: #e0e0e0;
+                font-weight: bold;
+            }
+            QListWidget::item:selected {
+                background-color: #0078d7;
+                color: white;
+                border-bottom: 1px solid #005a9e;
+            }
+            QListWidget::item:hover:!selected {
+                background-color: #3e3e42;
+            }
+        """)
+        
+        self.stacked_widget = QStackedWidget()
         
         tab_general = QWidget()
         layout_general = QVBoxLayout(tab_general)
-        
         self.mass_input = QLineEdit("2.5")
         self.mass_input.textChanged.connect(self.calculate_geometry)
         layout_general.addWidget(QLabel("Masse cible (kg) :"))
         layout_general.addWidget(self.mass_input)
-        
         self.vstall_input = QLineEdit("10.0")
         self.vstall_input.textChanged.connect(self.calculate_geometry)
         self.lbl_vstall_title = QLabel("Vitesse décrochage (m/s) :")
         layout_general.addWidget(self.lbl_vstall_title)
         layout_general.addWidget(self.vstall_input)
-        
         self.vcruise_input = QLineEdit("15.0")
         self.vcruise_input.textChanged.connect(self.calculate_geometry)
         self.lbl_vcruise_title = QLabel("Vitesse croisière (m/s) :")
         layout_general.addWidget(self.lbl_vcruise_title)
         layout_general.addWidget(self.vcruise_input)
-        
         self.speed_unit_combo = QComboBox()
         self.speed_unit_combo.addItems(["m/s", "km/h"])
         self.speed_unit_combo.currentTextChanged.connect(self._on_unit_changed) 
         layout_general.addWidget(QLabel("Unité des vitesses :"))
         layout_general.addWidget(self.speed_unit_combo)
-        
         self.airfoil_combo = QComboBox()
         self.airfoil_combo.addItems(self.db.list_airfoils())
         self.airfoil_combo.currentTextChanged.connect(self.calculate_geometry)
         layout_general.addWidget(QLabel("Profil de l'aile :"))
         layout_general.addWidget(self.airfoil_combo)
-        
         layout_general.addStretch()
-        self.tabs.addTab(tab_general, "Général")
-
+        
         tab_wing = QWidget()
         layout_wing = QVBoxLayout(tab_wing)
-        
         self.wing_shape_combo = QComboBox()
         self.wing_shape_combo.addItems(["Trapézoïdale", "Delta", "Lambda"])
         self.wing_shape_combo.currentTextChanged.connect(self.calculate_geometry)
         layout_wing.addWidget(QLabel("Forme de l'aile :"))
         layout_wing.addWidget(self.wing_shape_combo)
-        
         self.ar_label = QLabel("Allongement (AR) : 8.0")
         self.ar_slider = self._create_slider(20, 200, 80, layout_wing, self.ar_label)
-        
         self.sweep_label = QLabel("Angle de flèche : 0.0 °")
         self.sweep_slider = self._create_slider(0, 450, 0, layout_wing, self.sweep_label)
-        
         self.dihedral_label = QLabel("Angle de dièdre : 0.0 °")
         self.dihedral_slider = self._create_slider(0, 150, 0, layout_wing, self.dihedral_label)
-        
         self.kink_pos_label = QLabel("Position cassure : 45 %")
         self.kink_pos_slider = self._create_slider(20, 80, 45, layout_wing, self.kink_pos_label)
-        
         self.kink_angle_label = QLabel("Angle de cassure (BF) : -30.0 °")
         self.kink_angle_slider = self._create_slider(-600, 600, -300, layout_wing, self.kink_angle_label)
-        
         self.washout_label = QLabel("Vrillage (Washout) : 0.0 °")
         self.washout_slider = self._create_slider(-100, 0, 0, layout_wing, self.washout_label)
-        
         self.winglets_cb = QCheckBox("Ajouter Winglets (Dérives de saumon)")
         self.winglets_cb.stateChanged.connect(self.calculate_geometry)
         layout_wing.addWidget(self.winglets_cb)
-        
         layout_wing.addStretch()
-        self.tabs.addTab(tab_wing, "Aile")
-
+        
         tab_tail = QWidget()
         layout_tail = QVBoxLayout(tab_tail)
-        
         self.tail_combo = QComboBox()
         self.tail_combo.addItems(["Classique", "Empennage en T", "Empennage en V", "Aile Volante"])
         self.tail_combo.currentTextChanged.connect(self._on_tail_changed)
         layout_tail.addWidget(QLabel("Architecture :"))
         layout_tail.addWidget(self.tail_combo)
-        
         self.tailarm_label = QLabel("Bras de levier : 1.0 m")
         self.tailarm_slider = self._create_slider(30, 250, 100, layout_tail, self.tailarm_label)
-        
         self.nose_label = QLabel("Longueur du nez : 0.2 m")
         self.nose_slider = self._create_slider(0, 100, 20, layout_tail, self.nose_label)
-        
         self.htail_sweep_label = QLabel("Flèche empennage : 0.0 °")
         self.htail_sweep_slider = self._create_slider(0, 450, 0, layout_tail, self.htail_sweep_label)
-        
         self.vh_label = QLabel("Volume Horizontal (Vh) : 0.50")
         self.vh_slider = self._create_slider(20, 150, 50, layout_tail, self.vh_label)
-        
         self.vv_label = QLabel("Volume Vertical (Vv) : 0.040")
         self.vv_slider = self._create_slider(10, 100, 40, layout_tail, self.vv_label)
-        
         layout_tail.addStretch()
-        self.tabs.addTab(tab_tail, "Corps & Empennage")
         
         tab_mass = QWidget()
         layout_mass = QVBoxLayout(tab_mass)
-        
         layout_mass.addWidget(QLabel("Configuration Moteurs :"))
         self.motor_config_combo = QComboBox()
         self.motor_config_combo.addItems(["Monomoteur", "Bimoteur"])
         self.motor_config_combo.currentTextChanged.connect(self.calculate_geometry)
         layout_mass.addWidget(self.motor_config_combo)
-        
         layout_mass.addWidget(QLabel("Moteur (Masse unitaire en kg puis Pos. X) :"))
         self.m_motor_input = QLineEdit("0.15")
         self.m_motor_input.textChanged.connect(self.calculate_geometry)
         layout_mass.addWidget(self.m_motor_input)
         self.lbl_x_motor = QLabel("Position Moteur : -0.20 m")
         self.x_motor_slider = self._create_slider(-50, 100, -20, layout_mass, self.lbl_x_motor)
-        
         self.lbl_y_motor = QLabel("Position Y Moteurs : 0.00 m")
         self.y_motor_slider = self._create_slider(0, 100, 20, layout_mass, self.lbl_y_motor)
-        
         layout_mass.addWidget(QLabel("Batterie (Masse en kg puis Position X) :"))
         self.m_batt_input = QLineEdit("0.40")
         self.m_batt_input.textChanged.connect(self.calculate_geometry)
         layout_mass.addWidget(self.m_batt_input)
         self.lbl_x_batt = QLabel("Position Batterie : 0.00 m")
         self.x_batt_slider = self._create_slider(-50, 100, 0, layout_mass, self.lbl_x_batt)
-        
         layout_mass.addWidget(QLabel("Charge Utile (Masse en kg puis Pos. X) :"))
         self.m_payload_input = QLineEdit("0.25")
         self.m_payload_input.textChanged.connect(self.calculate_geometry)
         layout_mass.addWidget(self.m_payload_input)
         self.lbl_x_payload = QLabel("Position Charge U. : 0.10 m")
         self.x_payload_slider = self._create_slider(-50, 100, 10, layout_mass, self.lbl_x_payload)
-        
         layout_mass.addStretch()
-        self.tabs.addTab(tab_mass, "Centrage")
 
         tab_propulsion = QWidget()
         layout_propulsion = QVBoxLayout(tab_propulsion)
-        
         self.lbl_eta_prop = QLabel("Rendement Hélice : 70 %")
         self.eta_prop_slider = self._create_slider(40, 90, 70, layout_propulsion, self.lbl_eta_prop)
-        
         self.lbl_eta_motor = QLabel("Rendement Moteur : 80 %")
         self.eta_motor_slider = self._create_slider(50, 95, 80, layout_propulsion, self.lbl_eta_motor)
-        
         layout_propulsion.addStretch()
-        self.tabs.addTab(tab_propulsion, "Propulsion")
         
-        left_layout.addWidget(self.tabs)
+        tab_opti = QWidget()
+        layout_opti = QVBoxLayout(tab_opti)
+        layout_opti.addWidget(QLabel("Objectif d'optimisation :"))
+        self.opti_target_combo = QComboBox()
+        self.opti_target_combo.addItems([
+            "Maximiser la Finesse globale (L/D)",
+            "Minimiser la Puissance requise (Autonomie)",
+            "Maximiser la Marge Statique (Stabilité)"
+        ])
+        layout_opti.addWidget(self.opti_target_combo)
+        
+        layout_opti.addWidget(QLabel("Contrainte : Envergure maximale (m) :"))
+        self.max_span_input = QLineEdit("2.0")
+        layout_opti.addWidget(self.max_span_input)
+        
+        self.btn_run_opti = QPushButton("Exécuter le Solveur Génétique")
+        self.btn_run_opti.setStyleSheet("background-color: #0078d7; color: white; font-weight: bold; padding: 8px; border-radius: 4px;")
+        self.btn_run_opti.clicked.connect(self.run_ai_optimization)
+        layout_opti.addWidget(self.btn_run_opti)
+        
+        self.opti_progress = QProgressBar()
+        self.opti_progress.setValue(0)
+        self.opti_progress.setTextVisible(True)
+        layout_opti.addWidget(self.opti_progress)
+        
+        self.lbl_opti_results = QLabel("Solveur en attente.")
+        self.lbl_opti_results.setStyleSheet("color: #333; font-style: italic;")
+        layout_opti.addWidget(self.lbl_opti_results)
+        layout_opti.addStretch()
+
+        self.stacked_widget.addWidget(tab_general)
+        self.stacked_widget.addWidget(tab_wing)
+        self.stacked_widget.addWidget(tab_tail)
+        self.stacked_widget.addWidget(tab_mass)
+        self.stacked_widget.addWidget(tab_propulsion)
+        self.stacked_widget.addWidget(tab_opti)
+        
+        self.nav_list.addItems(["Général", "Aile Principale", "Empennage", "Masses & Centrage", "Propulsion", "Optimisation"])
+        self.nav_list.currentRowChanged.connect(self.stacked_widget.setCurrentIndex)
+        self.nav_list.setCurrentRow(0)
+
+        settings_layout.addWidget(self.nav_list)
+        settings_layout.addWidget(self.stacked_widget)
+        left_main_layout.addLayout(settings_layout)
         
         export_layout = QHBoxLayout()
         self.export_button = QPushButton("Note de Calcul (.txt)")
         self.export_button.clicked.connect(self.export_results)
         self.export_button.setEnabled(False)
-        
         self.export_cad_button = QPushButton("Export CAO (.csv)")
         self.export_cad_button.clicked.connect(self.export_cad)
         self.export_cad_button.setEnabled(False)
-        
         export_layout.addWidget(self.export_button)
         export_layout.addWidget(self.export_cad_button)
-        left_layout.addLayout(export_layout)
+        left_main_layout.addLayout(export_layout)
         
         right_layout = QVBoxLayout()
         self.results_box = QGroupBox("Paramètres Géométriques")
@@ -302,10 +337,15 @@ class WyngWindow(QMainWindow):
         self.lbl_tail_type = QLabel("-")
         self.lbl_tail_span = QLabel("-")
         self.lbl_tail_root = QLabel("-")
+        # NOUVELLES LIGNES POUR LA DÉRIVE
+        self.lbl_vtail_span = QLabel("-") 
+        self.lbl_vtail_root = QLabel("-")
         self.lbl_tail_angle = QLabel("-")
         self.tail_layout.addRow("Architecture :", self.lbl_tail_type)
         self.tail_layout.addRow("Envergure (H) :", self.lbl_tail_span)
         self.tail_layout.addRow("Corde emp (H) :", self.lbl_tail_root)
+        self.tail_layout.addRow("Envergure (V) :", self.lbl_vtail_span)
+        self.tail_layout.addRow("Corde emp (V) :", self.lbl_vtail_root)
         self.tail_layout.addRow("Angle V-Tail :", self.lbl_tail_angle)
         tail_group.setLayout(self.tail_layout)
 
@@ -381,11 +421,179 @@ class WyngWindow(QMainWindow):
         
         right_layout.addWidget(self.plot_tabs)
         
-        main_layout.addLayout(left_layout, 1) 
-        main_layout.addLayout(right_layout, 3)
+        main_layout.addLayout(left_main_layout, 2) 
+        main_layout.addLayout(right_layout, 3)     
 
         self.view_needs_reset = True
         self.calculate_geometry()
+
+    def run_ai_optimization(self):
+        self.btn_run_opti.setEnabled(False)
+        self.lbl_opti_results.setStyleSheet("color: #0078d7; font-weight: bold;")
+        self.lbl_opti_results.setText("Initialisation du solveur...")
+        
+        try:
+            max_span = float(self.max_span_input.text().replace(',', '.'))
+        except:
+            max_span = 2.0
+            
+        target_mode = self.opti_target_combo.currentText()
+            
+        try:
+            mass = float(self.mass_input.text().replace(',', '.'))
+            v_stall_raw = float(self.vstall_input.text().replace(',', '.'))
+            v_cruise_raw = float(self.vcruise_input.text().replace(',', '.'))
+            if self.speed_unit_combo.currentText() == "km/h":
+                v_stall = v_stall_raw / 3.6
+                v_cruise = v_cruise_raw / 3.6
+            else:
+                v_stall = v_stall_raw
+                v_cruise = v_cruise_raw
+                
+            kink_pos = self.kink_pos_slider.value() / 100.0
+            kink_angle = self.kink_angle_slider.value() / 10.0
+            tail_arm = self.tailarm_slider.value() / 100.0
+            nose = self.nose_slider.value() / 100.0
+            h_sweep = self.htail_sweep_slider.value() / 10.0
+            vh = self.vh_slider.value() / 100.0
+            vv = self.vv_slider.value() / 1000.0
+            
+            num_motors = 1 if self.motor_config_combo.currentText() == "Monomoteur" else 2
+            m_motor = float(self.m_motor_input.text().replace(',', '.'))
+            m_batt = float(self.m_batt_input.text().replace(',', '.'))
+            m_payload = float(self.m_payload_input.text().replace(',', '.'))
+            x_motor = self.x_motor_slider.value() / 100.0
+            y_motor = self.y_motor_slider.value() / 100.0
+            x_batt = self.x_batt_slider.value() / 100.0
+            x_payload = self.x_payload_slider.value() / 100.0
+            
+            eta_prop = self.eta_prop_slider.value() / 100.0
+            eta_motor = self.eta_motor_slider.value() / 100.0
+            
+            tail_type = self.tail_combo.currentText()
+            wing_shape = self.wing_shape_combo.currentText()
+            has_winglets = self.winglets_cb.isChecked()
+            
+            airfoil_name = self.airfoil_combo.currentText()
+            selected_airfoil = self.db.get_airfoil(airfoil_name)
+        except Exception as e:
+            self.lbl_opti_results.setText("Erreur dans les paramètres de base.")
+            self.btn_run_opti.setEnabled(True)
+            return
+
+        POP_SIZE = 40
+        GENERATIONS = 15
+        MUTATION_RATE = 0.3
+        
+        self.opti_progress.setMaximum(GENERATIONS)
+        self.opti_progress.setValue(0)
+        QApplication.processEvents()
+
+        def evaluate(genes):
+            g_ar, g_sweep, g_dih, g_wash = genes
+            try:
+                drone = Drone(mass=mass, v_stall=v_stall, v_cruise=v_cruise, airfoil=selected_airfoil, 
+                              aspect_ratio=g_ar, sweep_angle=g_sweep, dihedral_angle=g_dih, 
+                              tail_arm=tail_arm, nose_length=nose, tail_type=tail_type,
+                              h_tail_sweep=h_sweep, wing_shape=wing_shape,
+                              washout=g_wash, kink_pos=kink_pos, kink_angle=kink_angle,
+                              vh=vh, vv=vv, has_winglets=has_winglets,
+                              m_motor=m_motor, x_motor=x_motor,
+                              num_motors=num_motors, y_motor=y_motor,
+                              m_batt=m_batt, x_batt=x_batt,
+                              m_payload=m_payload, x_payload=x_payload,
+                              eta_prop=eta_prop, eta_motor=eta_motor)
+                
+                if target_mode == "Maximiser la Finesse globale (L/D)":
+                    score = drone.finesse
+                elif target_mode == "Minimiser la Puissance requise (Autonomie)":
+                    score = 10000.0 / max(1.0, drone.power_required) 
+                else: 
+                    score = drone.actual_static_margin
+                
+                if drone.main_wing.span > max_span:
+                    score -= (drone.main_wing.span - max_span) * 50
+                if drone.actual_static_margin < 5.0:
+                    score -= (5.0 - drone.actual_static_margin) * 50
+                if drone.actual_static_margin > 25.0: 
+                     score -= (drone.actual_static_margin - 25.0) * 10
+                     
+                return max(0.01, score)
+            except:
+                return 0.01
+
+        population = []
+        for _ in range(POP_SIZE):
+            population.append([
+                random.uniform(4.0, 20.0),  
+                random.uniform(0.0, 45.0),  
+                random.uniform(0.0, 15.0),  
+                random.uniform(-10.0, 0.0)  
+            ])
+            
+        best_genes = None
+        best_fitness = -1
+
+        for gen in range(GENERATIONS):
+            scored_pop = [(evaluate(ind), ind) for ind in population]
+            scored_pop.sort(key=lambda x: x[0], reverse=True)
+            
+            current_best_fit = scored_pop[0][0]
+            if current_best_fit > best_fitness:
+                best_fitness = current_best_fit
+                best_genes = scored_pop[0][1]
+                
+            self.opti_progress.setValue(gen + 1)
+            self.lbl_opti_results.setText(f"Génération {gen+1}/{GENERATIONS} en cours de calcul...")
+            QApplication.processEvents()
+            time.sleep(0.02) 
+            
+            survivors = [ind for fit, ind in scored_pop[:POP_SIZE//2]]
+            new_pop = survivors.copy()
+            
+            while len(new_pop) < POP_SIZE:
+                p1, p2 = random.sample(survivors, 2)
+                child = [p1[i] if random.random() > 0.5 else p2[i] for i in range(4)]
+                
+                if random.random() < MUTATION_RATE:
+                    child[0] += random.uniform(-1.5, 1.5)
+                    child[1] += random.uniform(-5.0, 5.0)
+                    child[2] += random.uniform(-2.0, 2.0)
+                    child[3] += random.uniform(-2.0, 2.0)
+                    
+                child[0] = max(4.0, min(child[0], 20.0))
+                child[1] = max(0.0, min(child[1], 45.0))
+                child[2] = max(0.0, min(child[2], 15.0))
+                child[3] = max(-10.0, min(child[3], 0.0))
+                
+                new_pop.append(child)
+                
+            population = new_pop
+
+        self.lbl_opti_results.setStyleSheet("color: green; font-weight: bold;")
+        self.lbl_opti_results.setText("Conception générative terminée avec succès.")
+        QApplication.processEvents()
+        
+        if best_genes:
+            self.ar_slider.blockSignals(True)
+            self.sweep_slider.blockSignals(True)
+            self.dihedral_slider.blockSignals(True)
+            self.washout_slider.blockSignals(True)
+            
+            self.ar_slider.setValue(int(best_genes[0] * 10))
+            self.sweep_slider.setValue(int(best_genes[1] * 10))
+            self.dihedral_slider.setValue(int(best_genes[2] * 10))
+            self.washout_slider.setValue(int(best_genes[3] * 10))
+            
+            self.ar_slider.blockSignals(False)
+            self.sweep_slider.blockSignals(False)
+            self.dihedral_slider.blockSignals(False)
+            self.washout_slider.blockSignals(False)
+            
+            self.view_needs_reset = True
+            self.calculate_geometry()
+            
+        self.btn_run_opti.setEnabled(True)
 
     def calculate_geometry(self):
         try:
@@ -521,20 +729,27 @@ class WyngWindow(QMainWindow):
             self.lbl_wing_tip.setText(f"{drone.main_wing.tip_chord:.2f} m")
             self.lbl_wing_inc.setText(f"{drone.wing_incidence:.1f}°")
 
+            # --- CORRECTION DE L'AFFICHAGE DES DIMENSIONS EMPENNAGES ---
             if tail_type in ["Classique", "Empennage en T"]:
                 self.lbl_tail_type.setText(tail_type)
                 self.lbl_tail_span.setText(f"{drone.h_tail.span:.2f} m")
                 self.lbl_tail_root.setText(f"{drone.h_tail.root_chord:.2f} m")
+                self.lbl_vtail_span.setText(f"{drone.v_tail.span:.2f} m")
+                self.lbl_vtail_root.setText(f"{drone.v_tail.root_chord:.2f} m")
                 self.lbl_tail_angle.setText("N/A")
             elif tail_type == "Empennage en V":
                 self.lbl_tail_type.setText("V-Tail")
                 self.lbl_tail_span.setText(f"{drone.v_tail_obj.span:.2f} m")
                 self.lbl_tail_root.setText(f"{drone.v_tail_obj.root_chord:.2f} m")
+                self.lbl_vtail_span.setText("N/A")
+                self.lbl_vtail_root.setText("N/A")
                 self.lbl_tail_angle.setText(f"{drone.v_angle:.1f}°")
             elif tail_type == "Aile Volante":
                 self.lbl_tail_type.setText("Aucun")
                 self.lbl_tail_span.setText("N/A")
                 self.lbl_tail_root.setText("N/A")
+                self.lbl_vtail_span.setText("N/A")
+                self.lbl_vtail_root.setText("N/A")
                 self.lbl_tail_angle.setText("N/A")
 
             longueur_totale = nose + drone.main_wing.root_chord + (tail_arm if not is_flying_wing else 0)
@@ -886,7 +1101,9 @@ class WyngWindow(QMainWindow):
                     'm_payload': self.m_payload_input.text(),
                     'x_payload': self.x_payload_slider.value(),
                     'eta_prop': self.eta_prop_slider.value(),
-                    'eta_motor': self.eta_motor_slider.value()
+                    'eta_motor': self.eta_motor_slider.value(),
+                    'opti_target': self.opti_target_combo.currentText(),
+                    'opti_span': self.max_span_input.text()
                 }
                 with open(file_path, 'w', encoding='utf-8') as f:
                     json.dump(state, f, indent=4)
@@ -909,7 +1126,7 @@ class WyngWindow(QMainWindow):
                     self.htail_sweep_slider, self.vh_slider, self.vv_slider, self.motor_config_combo, 
                     self.m_motor_input, self.x_motor_slider, self.y_motor_slider, self.m_batt_input, 
                     self.x_batt_slider, self.m_payload_input, self.x_payload_slider, 
-                    self.eta_prop_slider, self.eta_motor_slider
+                    self.eta_prop_slider, self.eta_motor_slider, self.opti_target_combo
                 ]
                 
                 for w in widgets:
@@ -949,6 +1166,11 @@ class WyngWindow(QMainWindow):
                 self.x_payload_slider.setValue(state.get('x_payload', 10))
                 self.eta_prop_slider.setValue(state.get('eta_prop', 70))
                 self.eta_motor_slider.setValue(state.get('eta_motor', 80))
+                
+                if 'opti_target' in state:
+                    self.opti_target_combo.setCurrentText(state['opti_target'])
+                if 'opti_span' in state:
+                    self.max_span_input.setText(state['opti_span'])
                 
                 for w in widgets:
                     w.blockSignals(False)
