@@ -368,9 +368,16 @@ class WyngWindow(QMainWindow):
         self.canvas_polars = FigureCanvas(self.figure_polars)
         layout_polars.addWidget(self.canvas_polars)
         
+        self.tab_struct = QWidget()
+        layout_struct = QVBoxLayout(self.tab_struct)
+        self.figure_struct = Figure()
+        self.canvas_struct = FigureCanvas(self.figure_struct)
+        layout_struct.addWidget(self.canvas_struct)
+        
         self.plot_tabs.addTab(self.tab_3d, "Vue 3D")
         self.plot_tabs.addTab(self.tab_vn, "Diagramme V-n")
         self.plot_tabs.addTab(self.tab_polars, "Polaires Aéro")
+        self.plot_tabs.addTab(self.tab_struct, "Structure")
         
         right_layout.addWidget(self.plot_tabs)
         
@@ -610,6 +617,7 @@ class WyngWindow(QMainWindow):
             self._draw_drone(drone)
             self._draw_vn(drone)
             self._draw_polars(drone)
+            self._draw_structure(drone)
 
         except ValueError:
             pass
@@ -791,6 +799,39 @@ class WyngWindow(QMainWindow):
         
         self.figure_polars.subplots_adjust(wspace=0.35, bottom=0.15)
         self.canvas_polars.draw()
+
+    def _draw_structure(self, drone):
+        self.figure_struct.clear()
+        
+        ax1 = self.figure_struct.add_subplot(131)
+        ax2 = self.figure_struct.add_subplot(132)
+        ax3 = self.figure_struct.add_subplot(133)
+        
+        y_vals, l_dist, v_dist, m_dist, max_shear, max_moment = drone.get_structural_data()
+        
+        ax1.plot(y_vals, l_dist, 'b-', linewidth=2)
+        ax1.fill_between(y_vals, 0, l_dist, color='blue', alpha=0.1)
+        ax1.set_title("Répartition de Portance (Schrenk)")
+        ax1.set_xlabel("Demi-envergure y (m)")
+        ax1.set_ylabel("Portance linéaire L' (N/m)")
+        ax1.grid(True, linestyle=':')
+        
+        ax2.plot(y_vals, v_dist, 'r-', linewidth=2)
+        ax2.fill_between(y_vals, 0, v_dist, color='red', alpha=0.1)
+        ax2.set_title(f"Effort Tranchant (Max: {max_shear:.0f} N)")
+        ax2.set_xlabel("Demi-envergure y (m)")
+        ax2.set_ylabel("Effort V (N)")
+        ax2.grid(True, linestyle=':')
+        
+        ax3.plot(y_vals, m_dist, 'g-', linewidth=2)
+        ax3.fill_between(y_vals, 0, m_dist, color='green', alpha=0.1)
+        ax3.set_title(f"Moment Fléchissant (Max: {max_moment:.1f} N.m)")
+        ax3.set_xlabel("Demi-envergure y (m)")
+        ax3.set_ylabel("Moment M (N.m)")
+        ax3.grid(True, linestyle=':')
+        
+        self.figure_struct.subplots_adjust(wspace=0.35, bottom=0.15)
+        self.canvas_struct.draw()
 
     def export_results(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Sauvegarder la Note de Calcul", "", "Text Files (*.txt)")

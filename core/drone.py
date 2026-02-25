@@ -237,3 +237,58 @@ class Drone:
             finesse_list.append(finesse)
             
         return alphas, cz_list, cd_list, finesse_list
+
+    def get_structural_data(self):
+        b2 = self.main_wing.span / 2
+        S = self.main_wing.surface
+        cr = self.main_wing.root_chord
+        ct = self.main_wing.tip_chord
+        
+        # Portance totale pour une demi-aile au facteur de charge maximal
+        L_max_half = (self.mass * self.g * self.n_max_struct) / 2.0
+        
+        n_points = 100
+        dy = b2 / n_points
+        y_vals = [i * dy for i in range(n_points + 1)]
+        
+        def get_chord_at(y):
+            if self.wing_shape != "Lambda":
+                return cr - (cr - ct) * (y / b2)
+            else:
+                y_kink = self.main_wing.outline_y[1]
+                c_kink = self.main_wing.outline_x[4] - self.main_wing.outline_x[1]
+                if y <= y_kink:
+                    if y_kink == 0: return cr
+                    return cr - (cr - c_kink) * (y / y_kink)
+                else:
+                    if b2 == y_kink: return c_kink
+                    return c_kink - (c_kink - ct) * ((y - y_kink) / (b2 - y_kink))
+
+        l_dist = []
+        for y in y_vals:
+            c_actual = get_chord_at(y)
+            
+            if y >= b2:
+                c_ell = 0
+            else:
+                c_ell = (4 * S / (math.pi * self.main_wing.span)) * math.sqrt(1 - (y / b2)**2)
+            
+            # Théorème de Schrenk (Moyenne entre géométrie réelle et ellipse)
+            c_schrenk = (c_actual + c_ell) / 2.0
+            
+            # Portance linéaire locale (N/m)
+            l_val = (L_max_half / (S / 2)) * c_schrenk
+            l_dist.append(l_val)
+            
+        v_dist = [0] * (n_points + 1)
+        m_dist = [0] * (n_points + 1)
+        
+        # Intégration numérique du saumon vers l'emplanture
+        for i in range(n_points - 1, -1, -1):
+            v_dist[i] = v_dist[i+1] + 0.5 * (l_dist[i] + l_dist[i+1]) * dy
+            m_dist[i] = m_dist[i+1] + 0.5 * (v_dist[i] + v_dist[i+1]) * dy
+            
+        max_shear = v_dist[0]
+        max_moment = m_dist[0]
+        
+        return y_vals, l_dist, v_dist, m_dist, max_shear, max_moment
