@@ -115,15 +115,40 @@ class Drone:
         if self.tail_type == "Aile Volante":
             self.neutral_point_x = self.main_wing.aerodynamic_center_x
         else:
+            # 1. Caractéristiques aérodynamiques de l'aile principale
             mac_wing = self.main_wing.mean_aerodynamic_chord
             area_wing = self.main_wing.surface
             x_ac_wing = self.main_wing.aerodynamic_center_x
+            AR_w = self.main_wing.aspect_ratio
+            sweep_w_rad = self.main_wing.sweep_angle_rad
             
+            # Pente de portance 3D de l'aile (Diederich, en 1/rad)
+            a_w = (2 * math.pi * AR_w) / (2 + math.sqrt(4 + (AR_w**2 / math.cos(sweep_w_rad)**2)))
+            
+            # 2. Caractéristiques aérodynamiques de l'empennage
             area_tail = self.h_tail.surface
             x_ac_tail = self.tail_arm + self.h_tail.aerodynamic_center_x
+            AR_t = self.h_tail.aspect_ratio
+            sweep_t_rad = self.h_tail.sweep_angle_rad
             
-            self.neutral_point_x = (x_ac_wing * area_wing + x_ac_tail * area_tail) / (area_wing + area_tail)
+            # Pente de portance 3D de l'empennage (Diederich, en 1/rad)
+            a_t = (2 * math.pi * AR_t) / (2 + math.sqrt(4 + (AR_t**2 / math.cos(sweep_t_rad)**2)))
+            
+            # 3. Calcul des interactions aérodynamiques de sillage
+            # Estimation du downwash (déflexion du sillage par l'aile)
+            deps_dalpha = (2 * a_w) / (math.pi * AR_w)
+            
+            # Ratio de pression dynamique (eta_t)
+            # Un empennage en T échappe en grande partie au sillage freiné de l'aile
+            eta_t = 1.0 if self.tail_type == "Empennage en T" else 0.9
+            
+            # Facteur d'efficacité globale de l'empennage
+            tail_efficiency = (a_t / a_w) * eta_t * (1.0 - deps_dalpha)
+            
+            # 4. Nouveau calcul du Point Neutre (Foyer global pondéré aérodynamiquement)
+            self.neutral_point_x = (x_ac_wing * area_wing + x_ac_tail * area_tail * tail_efficiency) / (area_wing + area_tail * tail_efficiency)
 
+        # Le centre de gravité idéal cible est déduit à partir du nouveau point neutre
         self.cg_x = self.neutral_point_x - (static_margin_target * self.main_wing.mean_aerodynamic_chord)
 
     def _calculate_incidence(self):
@@ -190,13 +215,8 @@ class Drone:
         # 2. Calcul de la traînée
         cdi = (self.cz_cruise ** 2) / (math.pi * self.oswald_e * AR)
         
-        # Note : La traînée parasite (cd0) complète sera traitée dans le Chantier 3.
-        # Pour l'instant, on conserve l'ancienne base pour que le code continue de tourner.
-        integration_penalty = 0.01 
-        if self.tail_type == "Aile Volante":
-            integration_penalty = 0.003
-            
-        cd0 = self.airfoil.cd_0 + integration_penalty
+        # Calcul de la traînée parasite via Component Build-up Method
+        cd0 = self._estimate_cd0()
         
         self.cd_total = cd0 + cdi
         self.finesse = self.cz_cruise / self.cd_total if self.cd_total > 0 else 0
@@ -233,32 +253,50 @@ class Drone:
     def get_polar_data(self):
         cl_0 = getattr(self.airfoil, 'cl_0', 0.2)
         cl_max = self.airfoil.cl_max
-        lift_slope = 0.1
         
-        integration_penalty = 0.01 
-        if self.tail_type == "Aile Volante":
-            integration_penalty = 0.003
-        cd0 = self.airfoil.cd_0 + integration_penalty
+        # 1. Pente de portance 3D (Théorie de Diederich)
+        a_0 = 2 * math.pi
+        AR = self.main_wing.aspect_ratio
+        sweep_rad = self.main_wing.sweep_angle_rad
+        lift_slope_rad = (a_0 * AR) / (2 + math.sqrt(4 + (AR**2 / math.cos(sweep_rad)**2)))
+        lift_slope_deg = math.radians(lift_slope_rad)
         
-        alphas = list(range(-5, 21))
+        # 2. Récupération du Cd0 calculé par la méthode des surfaces mouillées (Chantier 3)
+        cd0 = self._estimate_cd0()
+        
+        # On pousse l'analyse jusqu'à 25° pour bien visualiser la zone de décrochage
+        alphas = list(range(-5, 26))
         cz_list = []
         cd_list = []
         finesse_list = []
         
-        alpha_stall = (cl_max - cl_0) / lift_slope
+        # Angle critique où le profil atteint son Cz_max
+        alpha_stall = (cl_max - cl_0) / lift_slope_deg
         
         for alpha in alphas:
-            cz = cl_0 + lift_slope * alpha
-            
-            if cz > cl_max:
-                cz = cl_max - 0.05 * (alpha - alpha_stall)
-            elif cz < -cl_max * 0.6:
-                cz = -cl_max * 0.6
+            if alpha <= alpha_stall:
+                # Comportement linéaire classique (vol normal)
+                cz = cl_0 + lift_slope_deg * alpha
                 
+                # Limite basse (décrochage dos approximé)
+                if cz < -cl_max * 0.6:
+                    cz = -cl_max * 0.6
+            else:
+                # 3. Comportement post-décrochage non-linéaire (perte de portance parabolique)
+                delta_alpha = alpha - alpha_stall
+                cz = cl_max - 0.015 * (delta_alpha ** 2)
+                
+                # Palier minimal pour éviter un Cz absurdement négatif aux très grands angles
+                if cz < cl_max * 0.3:
+                    cz = cl_max * 0.3
+                
+            # Calcul de la traînée induite classique
             cdi = (cz ** 2) / (math.pi * self.oswald_e * self.main_wing.aspect_ratio)
             
             if alpha > alpha_stall:
-                cd = cd0 + cdi + 0.05 * (alpha - alpha_stall)**2
+                # En décrochage, la traînée de pression explose à cause du sillage turbulent
+                delta_alpha = alpha - alpha_stall
+                cd = cd0 + cdi + 0.02 * (delta_alpha ** 2)
             else:
                 cd = cd0 + cdi
                 
@@ -320,3 +358,57 @@ class Drone:
         max_moment = m_dist[0]
         
         return y_vals, l_dist, v_dist, m_dist, max_shear, max_moment
+
+    def _estimate_cd0(self) -> float:
+        """
+        Calcule la traînée parasite globale (Cd0) par la Component Build-up Method.
+        Somme les contributions de friction et de forme de chaque surface mouillée.
+        """
+        # 1. Aile principale
+        # L'épaisseur relative (t/c) est récupérée du profil (souvent donnée en %)
+        tc_wing = self.airfoil.thickness / 100.0 if self.airfoil.thickness > 1.0 else self.airfoil.thickness
+        swet_wing = 2.0 * self.main_wing.surface * (1.0 + 0.25 * tc_wing)
+        cf_wing = 0.0055  # Cf estimé pour un écoulement mixte sur drone (Re ~ 500k)
+        cd0_wing = cf_wing * swet_wing / self.main_wing.surface
+        
+        # 2. Fuselage (Modélisation par un corps profilé équivalent)
+        cd0_fuselage = 0.0
+        if self.tail_type == "Aile Volante":
+            cd0_fuselage = 0.002 # Traînée résiduelle de la bosse centrale / charge utile
+        else:
+            # Estimation géométrique d'un fuselage à partir de l'architecture
+            l_fuselage = self.nose_length + self.main_wing.root_chord + self.tail_arm
+            # Volume estimé à partir de la masse (hyp: densité moyenne drone 300 kg/m^3)
+            vol_fuselage = self.mass / 300.0
+            d_fuselage = math.sqrt((4 * vol_fuselage) / (math.pi * l_fuselage))
+            
+            finesse_fuselage = l_fuselage / max(0.01, d_fuselage)
+            swet_fuselage = math.pi * d_fuselage * l_fuselage * 0.75 # Forme en fuseau (facteur géométrique)
+            
+            # Facteur de forme (Form Factor) pour un corps 3D (Fuselage)
+            ff_fuselage = 1.0 + 60.0 / (finesse_fuselage**3) + finesse_fuselage / 400.0
+            cf_fuselage = 0.006
+            cd0_fuselage = (cf_fuselage * ff_fuselage * swet_fuselage) / self.main_wing.surface
+            
+        # 3. Empennages (Hypothèse de profils symétriques fins type NACA 0009)
+        cd0_tails = 0.0
+        tc_tail = 0.09 
+        cf_tail = 0.006
+        
+        if self.h_tail:
+            swet_htail = 2.0 * self.h_tail.surface * (1.0 + 0.25 * tc_tail)
+            cd0_tails += cf_tail * swet_htail / self.main_wing.surface
+            
+        if self.v_tail:
+            swet_vtail = 2.0 * self.v_tail.surface * (1.0 + 0.25 * tc_tail)
+            cd0_tails += cf_tail * swet_vtail / self.main_wing.surface
+        elif getattr(self, 'v_tail_obj', None): # Pour le cas Empennage en V
+            swet_vtail = 2.0 * self.v_tail_obj.surface * (1.0 + 0.25 * tc_tail)
+            cd0_tails += cf_tail * swet_vtail / self.main_wing.surface
+            
+        # 4. Traînée parasite totale 
+        # Majoration de 10% pour les interférences de jonctions (Interference Drag) et rugosités
+        cd0_total = (cd0_wing + cd0_fuselage + cd0_tails) * 1.10
+        
+        # Sécurité : le Cd0 global ne peut pas être inférieur au Cd0 théorique en soufflerie du profil seul
+        return max(cd0_total, self.airfoil.cd_0)
