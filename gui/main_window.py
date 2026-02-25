@@ -16,7 +16,7 @@ from gui.file_manager import FileManager # Import de notre nouveau gestionnaire 
 class WyngWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Wyng - Dimensionnement Aérodynamique")
+        self.setWindowTitle("Wyng 1.0")
         self.setWindowIcon(QIcon('wyng.ico'))
         self.setMinimumSize(1450, 900) 
         
