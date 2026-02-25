@@ -9,6 +9,7 @@ class Drone:
                  tail_arm: float = 1.0, vh: float = 0.5, vv: float = 0.04,
                  nose_length: float = 0.2, tail_type: str = "Classique",
                  h_tail_sweep: float = 0.0, wing_shape: str = "Trapézoïdale",
+                 htail_shape: str = "Trapézoïdale",
                  washout: float = 0.0, kink_pos: float = 0.45, kink_angle: float = -30.0,
                  has_winglets: bool = False,
                  m_motor: float = 0.2, x_motor: float = -0.1,
@@ -31,6 +32,7 @@ class Drone:
         self.tail_type = tail_type
         self.h_tail_sweep = h_tail_sweep
         self.wing_shape = wing_shape
+        self.htail_shape = htail_shape
         
         self.m_motor = m_motor
         self.x_motor = x_motor
@@ -51,11 +53,14 @@ class Drone:
         
         self.required_surface = self._calculate_required_surface()
         
+        wing_taper = 1.0 if wing_shape == "Droite" else (0.0 if wing_shape == "Delta" else taper_ratio)
+        actual_wing_shape = "Trapézoïdale" if wing_shape == "Droite" else wing_shape
+        
         self.main_wing = Wing(
             surface=self.required_surface, 
-            aspect_ratio=aspect_ratio, taper_ratio=taper_ratio,
+            aspect_ratio=aspect_ratio, taper_ratio=wing_taper,
             sweep_angle_deg=sweep_angle, dihedral_angle_deg=dihedral_angle,
-            wing_shape=wing_shape, washout_deg=washout,
+            wing_shape=actual_wing_shape, washout_deg=washout,
             kink_pos_ratio=kink_pos, kink_angle_deg=kink_angle,
             has_winglets=has_winglets
         )
@@ -90,16 +95,19 @@ class Drone:
         sh_surface = (self.vh * self.main_wing.surface * self.main_wing.mean_aerodynamic_chord) / self.tail_arm
         sv_surface = (self.vv * self.main_wing.surface * self.main_wing.span) / self.tail_arm
 
+        htail_taper = 1.0 if self.htail_shape == "Droite" else (0.0 if self.htail_shape == "Delta" else 0.7)
+        actual_htail_shape = "Trapézoïdale" if self.htail_shape == "Droite" else self.htail_shape
+
         if self.tail_type in ["Classique", "Empennage en T"]:
-            self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7, sweep_angle_deg=self.h_tail_sweep)
+            self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=htail_taper, sweep_angle_deg=self.h_tail_sweep, wing_shape=actual_htail_shape)
             self.v_tail = Wing(surface=sv_surface, aspect_ratio=1.5, taper_ratio=0.8)
             self.v_angle = 0.0
             
         elif self.tail_type == "Empennage en V":
             vtail_surface = sh_surface + sv_surface
             self.v_angle = math.degrees(math.atan(math.sqrt(sv_surface / sh_surface)))
-            self.v_tail_obj = Wing(surface=vtail_surface, aspect_ratio=4.0, taper_ratio=0.7, sweep_angle_deg=self.h_tail_sweep)
-            self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=0.7, sweep_angle_deg=self.h_tail_sweep)
+            self.v_tail_obj = Wing(surface=vtail_surface, aspect_ratio=4.0, taper_ratio=htail_taper, sweep_angle_deg=self.h_tail_sweep, wing_shape=actual_htail_shape)
+            self.h_tail = Wing(surface=sh_surface, aspect_ratio=4.0, taper_ratio=htail_taper, sweep_angle_deg=self.h_tail_sweep, wing_shape=actual_htail_shape)
             self.v_tail = None
 
     def _calculate_cg_and_stability(self):
@@ -244,7 +252,6 @@ class Drone:
         cr = self.main_wing.root_chord
         ct = self.main_wing.tip_chord
         
-        # Portance totale pour une demi-aile au facteur de charge maximal
         L_max_half = (self.mass * self.g * self.n_max_struct) / 2.0
         
         n_points = 100
@@ -252,7 +259,7 @@ class Drone:
         y_vals = [i * dy for i in range(n_points + 1)]
         
         def get_chord_at(y):
-            if self.wing_shape != "Lambda":
+            if self.wing_shape not in ["Lambda"]:
                 return cr - (cr - ct) * (y / b2)
             else:
                 y_kink = self.main_wing.outline_y[1]
@@ -273,17 +280,14 @@ class Drone:
             else:
                 c_ell = (4 * S / (math.pi * self.main_wing.span)) * math.sqrt(1 - (y / b2)**2)
             
-            # Théorème de Schrenk (Moyenne entre géométrie réelle et ellipse)
             c_schrenk = (c_actual + c_ell) / 2.0
             
-            # Portance linéaire locale (N/m)
             l_val = (L_max_half / (S / 2)) * c_schrenk
             l_dist.append(l_val)
             
         v_dist = [0] * (n_points + 1)
         m_dist = [0] * (n_points + 1)
         
-        # Intégration numérique du saumon vers l'emplanture
         for i in range(n_points - 1, -1, -1):
             v_dist[i] = v_dist[i+1] + 0.5 * (l_dist[i] + l_dist[i+1]) * dy
             m_dist[i] = m_dist[i+1] + 0.5 * (v_dist[i] + v_dist[i+1]) * dy

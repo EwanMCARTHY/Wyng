@@ -19,7 +19,7 @@ from core.airfoil import AirfoilDatabase
 class WyngWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Wyng - Dimensionnement Aérodynamique")
+        self.setWindowTitle("Wyng")
         self.setWindowIcon(QIcon('wyng.ico'))
         self.setMinimumSize(1450, 900) 
         
@@ -122,9 +122,9 @@ class WyngWindow(QMainWindow):
         
         settings_layout = QHBoxLayout()
         
-        # --- MENU LATÉRAL THÈME SOMBRE ---
         self.nav_list = QListWidget()
-        self.nav_list.setMaximumWidth(180)
+        self.nav_list.setMaximumWidth(220) 
+        self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff) 
         self.nav_list.setStyleSheet("""
             QListWidget {
                 border: 1px solid #1e1e1e;
@@ -181,7 +181,7 @@ class WyngWindow(QMainWindow):
         tab_wing = QWidget()
         layout_wing = QVBoxLayout(tab_wing)
         self.wing_shape_combo = QComboBox()
-        self.wing_shape_combo.addItems(["Trapézoïdale", "Delta", "Lambda"])
+        self.wing_shape_combo.addItems(["Droite", "Trapézoïdale", "Delta", "Lambda"])
         self.wing_shape_combo.currentTextChanged.connect(self.calculate_geometry)
         layout_wing.addWidget(QLabel("Forme de l'aile :"))
         layout_wing.addWidget(self.wing_shape_combo)
@@ -209,6 +209,14 @@ class WyngWindow(QMainWindow):
         self.tail_combo.currentTextChanged.connect(self._on_tail_changed)
         layout_tail.addWidget(QLabel("Architecture :"))
         layout_tail.addWidget(self.tail_combo)
+        
+        self.lbl_htail_shape = QLabel("Forme de l'empennage H. :")
+        self.htail_shape_combo = QComboBox()
+        self.htail_shape_combo.addItems(["Droite", "Trapézoïdale", "Delta"])
+        self.htail_shape_combo.currentTextChanged.connect(self.calculate_geometry)
+        layout_tail.addWidget(self.lbl_htail_shape)
+        layout_tail.addWidget(self.htail_shape_combo)
+        
         self.tailarm_label = QLabel("Bras de levier : 1.0 m")
         self.tailarm_slider = self._create_slider(30, 250, 100, layout_tail, self.tailarm_label)
         self.nose_label = QLabel("Longueur du nez : 0.2 m")
@@ -286,7 +294,17 @@ class WyngWindow(QMainWindow):
         self.lbl_opti_results = QLabel("Solveur en attente.")
         self.lbl_opti_results.setStyleSheet("color: #333; font-style: italic;")
         layout_opti.addWidget(self.lbl_opti_results)
-        layout_opti.addStretch()
+        
+        self.figure_opti = Figure()
+        self.canvas_opti = FigureCanvas(self.figure_opti)
+        self.ax_opti = self.figure_opti.add_subplot(111)
+        self.ax_opti.set_title("Convergence de l'Algorithme")
+        self.ax_opti.set_xlabel("Générations")
+        self.ax_opti.set_ylabel("Score (Fitness)")
+        self.ax_opti.grid(True, linestyle=':')
+        layout_opti.addWidget(self.canvas_opti)
+        
+        layout_opti.addStretch() 
 
         self.stacked_widget.addWidget(tab_general)
         self.stacked_widget.addWidget(tab_wing)
@@ -337,7 +355,6 @@ class WyngWindow(QMainWindow):
         self.lbl_tail_type = QLabel("-")
         self.lbl_tail_span = QLabel("-")
         self.lbl_tail_root = QLabel("-")
-        # NOUVELLES LIGNES POUR LA DÉRIVE
         self.lbl_vtail_span = QLabel("-") 
         self.lbl_vtail_root = QLabel("-")
         self.lbl_tail_angle = QLabel("-")
@@ -389,7 +406,9 @@ class WyngWindow(QMainWindow):
         layout_3d = QVBoxLayout(self.tab_3d)
         self.figure_3d = Figure()
         self.canvas_3d = FigureCanvas(self.figure_3d)
+        
         self.canvas_3d.mpl_connect('scroll_event', self._on_scroll)
+        
         layout_3d.addWidget(self.canvas_3d)
         self.btn_reset_view = QPushButton("Réinitialiser la vue 3D")
         self.btn_reset_view.clicked.connect(self.reset_3d_view)
@@ -432,6 +451,13 @@ class WyngWindow(QMainWindow):
         self.lbl_opti_results.setStyleSheet("color: #0078d7; font-weight: bold;")
         self.lbl_opti_results.setText("Initialisation du solveur...")
         
+        self.ax_opti.clear()
+        self.ax_opti.set_title("Convergence de l'Algorithme")
+        self.ax_opti.set_xlabel("Générations")
+        self.ax_opti.set_ylabel("Score (Fitness)")
+        self.ax_opti.grid(True, linestyle=':')
+        self.canvas_opti.draw()
+        
         try:
             max_span = float(self.max_span_input.text().replace(',', '.'))
         except:
@@ -464,7 +490,6 @@ class WyngWindow(QMainWindow):
             m_payload = float(self.m_payload_input.text().replace(',', '.'))
             x_motor = self.x_motor_slider.value() / 100.0
             y_motor = self.y_motor_slider.value() / 100.0
-            x_batt = self.x_batt_slider.value() / 100.0
             x_payload = self.x_payload_slider.value() / 100.0
             
             eta_prop = self.eta_prop_slider.value() / 100.0
@@ -472,35 +497,43 @@ class WyngWindow(QMainWindow):
             
             tail_type = self.tail_combo.currentText()
             wing_shape = self.wing_shape_combo.currentText()
+            htail_shape = self.htail_shape_combo.currentText()
             has_winglets = self.winglets_cb.isChecked()
             
             airfoil_name = self.airfoil_combo.currentText()
             selected_airfoil = self.db.get_airfoil(airfoil_name)
+            
+            min_xbatt = self.x_batt_slider.minimum() / 100.0
+            max_xbatt = self.x_batt_slider.maximum() / 100.0
+            
         except Exception as e:
             self.lbl_opti_results.setText("Erreur dans les paramètres de base.")
             self.btn_run_opti.setEnabled(True)
             return
 
-        POP_SIZE = 40
-        GENERATIONS = 15
+        POP_SIZE = 80
+        GENERATIONS = 30
         MUTATION_RATE = 0.3
         
         self.opti_progress.setMaximum(GENERATIONS)
         self.opti_progress.setValue(0)
+        
+        best_history = []
+        avg_history = []
         QApplication.processEvents()
 
         def evaluate(genes):
-            g_ar, g_sweep, g_dih, g_wash = genes
+            g_ar, g_sweep, g_dih, g_wash, g_xbatt = genes
             try:
                 drone = Drone(mass=mass, v_stall=v_stall, v_cruise=v_cruise, airfoil=selected_airfoil, 
                               aspect_ratio=g_ar, sweep_angle=g_sweep, dihedral_angle=g_dih, 
                               tail_arm=tail_arm, nose_length=nose, tail_type=tail_type,
-                              h_tail_sweep=h_sweep, wing_shape=wing_shape,
+                              h_tail_sweep=h_sweep, wing_shape=wing_shape, htail_shape=htail_shape,
                               washout=g_wash, kink_pos=kink_pos, kink_angle=kink_angle,
                               vh=vh, vv=vv, has_winglets=has_winglets,
                               m_motor=m_motor, x_motor=x_motor,
                               num_motors=num_motors, y_motor=y_motor,
-                              m_batt=m_batt, x_batt=x_batt,
+                              m_batt=m_batt, x_batt=g_xbatt, 
                               m_payload=m_payload, x_payload=x_payload,
                               eta_prop=eta_prop, eta_motor=eta_motor)
                 
@@ -511,13 +544,23 @@ class WyngWindow(QMainWindow):
                 else: 
                     score = drone.actual_static_margin
                 
+                penalty_factor = 1.0
+                
                 if drone.main_wing.span > max_span:
-                    score -= (drone.main_wing.span - max_span) * 50
+                    penalty_factor *= 0.01 / (1.0 + (drone.main_wing.span - max_span)**2)
+                    
                 if drone.actual_static_margin < 5.0:
-                    score -= (5.0 - drone.actual_static_margin) * 50
+                    penalty_factor *= 0.01 / (1.0 + (5.0 - drone.actual_static_margin)**2)
+                    
                 if drone.actual_static_margin > 25.0: 
-                     score -= (drone.actual_static_margin - 25.0) * 10
+                    penalty_factor *= 0.5 
                      
+                score = score * penalty_factor
+                
+                # --- PÉNALITÉ DE COMPLEXITÉ ---
+                complexity_penalty = (abs(g_dih) * 0.5) + (abs(g_sweep) * 0.1) + (abs(g_wash) * 0.5)
+                score = score * (1.0 - (complexity_penalty / 100.0))
+                
                 return max(0.01, score)
             except:
                 return 0.01
@@ -528,7 +571,8 @@ class WyngWindow(QMainWindow):
                 random.uniform(4.0, 20.0),  
                 random.uniform(0.0, 45.0),  
                 random.uniform(0.0, 15.0),  
-                random.uniform(-10.0, 0.0)  
+                random.uniform(-10.0, 0.0),
+                random.uniform(min_xbatt, max_xbatt) 
             ])
             
         best_genes = None
@@ -539,32 +583,49 @@ class WyngWindow(QMainWindow):
             scored_pop.sort(key=lambda x: x[0], reverse=True)
             
             current_best_fit = scored_pop[0][0]
+            avg_fit = sum(s[0] for s in scored_pop) / POP_SIZE
+            
             if current_best_fit > best_fitness:
                 best_fitness = current_best_fit
                 best_genes = scored_pop[0][1]
                 
+            best_history.append(best_fitness)
+            avg_history.append(avg_fit)
+            
+            self.ax_opti.clear()
+            self.ax_opti.set_title("Convergence de l'Algorithme Génétique")
+            self.ax_opti.set_xlabel("Générations")
+            self.ax_opti.set_ylabel("Score (Fitness)")
+            self.ax_opti.grid(True, linestyle=':')
+            self.ax_opti.plot(best_history, 'b-', linewidth=2, label="Meilleur individu")
+            self.ax_opti.plot(avg_history, 'g--', linewidth=1.5, label="Moyenne population")
+            self.ax_opti.legend(loc="lower right")
+            self.canvas_opti.draw()
+                
             self.opti_progress.setValue(gen + 1)
             self.lbl_opti_results.setText(f"Génération {gen+1}/{GENERATIONS} en cours de calcul...")
             QApplication.processEvents()
-            time.sleep(0.02) 
+            
+            new_pop = [scored_pop[0][1].copy(), scored_pop[1][1].copy()]
             
             survivors = [ind for fit, ind in scored_pop[:POP_SIZE//2]]
-            new_pop = survivors.copy()
             
             while len(new_pop) < POP_SIZE:
                 p1, p2 = random.sample(survivors, 2)
-                child = [p1[i] if random.random() > 0.5 else p2[i] for i in range(4)]
+                child = [p1[i] if random.random() > 0.5 else p2[i] for i in range(5)]
                 
                 if random.random() < MUTATION_RATE:
-                    child[0] += random.uniform(-1.5, 1.5)
+                    child[0] += random.uniform(-2.0, 2.0)
                     child[1] += random.uniform(-5.0, 5.0)
                     child[2] += random.uniform(-2.0, 2.0)
                     child[3] += random.uniform(-2.0, 2.0)
+                    child[4] += random.uniform(-0.1, 0.1)
                     
                 child[0] = max(4.0, min(child[0], 20.0))
                 child[1] = max(0.0, min(child[1], 45.0))
                 child[2] = max(0.0, min(child[2], 15.0))
                 child[3] = max(-10.0, min(child[3], 0.0))
+                child[4] = max(min_xbatt, min(child[4], max_xbatt))
                 
                 new_pop.append(child)
                 
@@ -579,18 +640,22 @@ class WyngWindow(QMainWindow):
             self.sweep_slider.blockSignals(True)
             self.dihedral_slider.blockSignals(True)
             self.washout_slider.blockSignals(True)
+            self.x_batt_slider.blockSignals(True)
             
             self.ar_slider.setValue(int(best_genes[0] * 10))
             self.sweep_slider.setValue(int(best_genes[1] * 10))
             self.dihedral_slider.setValue(int(best_genes[2] * 10))
             self.washout_slider.setValue(int(best_genes[3] * 10))
+            self.x_batt_slider.setValue(int(best_genes[4] * 100))
             
             self.ar_slider.blockSignals(False)
             self.sweep_slider.blockSignals(False)
             self.dihedral_slider.blockSignals(False)
             self.washout_slider.blockSignals(False)
+            self.x_batt_slider.blockSignals(False)
             
-            self.view_needs_reset = True
+            # EMPÊCHE LA VUE DE SE RÉINITIALISER
+            self.view_needs_reset = False
             self.calculate_geometry()
             
         self.btn_run_opti.setEnabled(True)
@@ -636,6 +701,7 @@ class WyngWindow(QMainWindow):
             
             tail_type = self.tail_combo.currentText()
             wing_shape = self.wing_shape_combo.currentText()
+            htail_shape = self.htail_shape_combo.currentText()
             has_winglets = self.winglets_cb.isChecked()
             
             is_flying_wing = (tail_type == "Aile Volante")
@@ -653,6 +719,9 @@ class WyngWindow(QMainWindow):
             self.kink_pos_slider.setVisible(is_lambda)
             self.kink_angle_label.setVisible(is_lambda)
             self.kink_angle_slider.setVisible(is_lambda)
+            
+            self.lbl_htail_shape.setVisible(has_tail)
+            self.htail_shape_combo.setVisible(has_tail)
             self.tailarm_label.setVisible(has_tail)
             self.tailarm_slider.setVisible(has_tail)
             self.htail_sweep_label.setVisible(has_tail)
@@ -690,7 +759,7 @@ class WyngWindow(QMainWindow):
             drone = Drone(mass=mass, v_stall=v_stall, v_cruise=v_cruise, airfoil=selected_airfoil, 
                           aspect_ratio=ar, sweep_angle=sweep, dihedral_angle=dihedral, 
                           tail_arm=tail_arm, nose_length=nose, tail_type=tail_type,
-                          h_tail_sweep=h_sweep, wing_shape=wing_shape,
+                          h_tail_sweep=h_sweep, wing_shape=wing_shape, htail_shape=htail_shape,
                           washout=washout, kink_pos=kink_pos, kink_angle=kink_angle,
                           vh=vh, vv=vv, has_winglets=has_winglets,
                           m_motor=m_motor, x_motor=x_motor,
@@ -729,7 +798,6 @@ class WyngWindow(QMainWindow):
             self.lbl_wing_tip.setText(f"{drone.main_wing.tip_chord:.2f} m")
             self.lbl_wing_inc.setText(f"{drone.wing_incidence:.1f}°")
 
-            # --- CORRECTION DE L'AFFICHAGE DES DIMENSIONS EMPENNAGES ---
             if tail_type in ["Classique", "Empennage en T"]:
                 self.lbl_tail_type.setText(tail_type)
                 self.lbl_tail_span.setText(f"{drone.h_tail.span:.2f} m")
@@ -860,6 +928,8 @@ class WyngWindow(QMainWindow):
         self.ax.set_xlabel("Axe Longitudinal X (m)")
         self.ax.set_ylabel("Envergure Y (m)")
         self.ax.set_zlabel("Hauteur Z (m)")
+        
+        self.ax.set_box_aspect((1, 1, 1))
         
         def add_symmetric_poly(x_coords, y_coords, z_coords, color, alpha=0.6):
             verts_right = list(zip(x_coords, y_coords, z_coords))
@@ -1087,6 +1157,7 @@ class WyngWindow(QMainWindow):
                     'washout': self.washout_slider.value(),
                     'has_winglets': self.winglets_cb.isChecked(),
                     'tail_type': self.tail_combo.currentText(),
+                    'htail_shape': self.htail_shape_combo.currentText(),
                     'tail_arm': self.tailarm_slider.value(),
                     'nose': self.nose_slider.value(),
                     'h_sweep': self.htail_sweep_slider.value(),
@@ -1122,7 +1193,7 @@ class WyngWindow(QMainWindow):
                     self.mass_input, self.vstall_input, self.vcruise_input, self.speed_unit_combo,
                     self.airfoil_combo, self.wing_shape_combo, self.ar_slider, self.sweep_slider,
                     self.dihedral_slider, self.kink_pos_slider, self.kink_angle_slider, self.washout_slider,
-                    self.winglets_cb, self.tail_combo, self.tailarm_slider, self.nose_slider,
+                    self.winglets_cb, self.tail_combo, self.htail_shape_combo, self.tailarm_slider, self.nose_slider,
                     self.htail_sweep_slider, self.vh_slider, self.vv_slider, self.motor_config_combo, 
                     self.m_motor_input, self.x_motor_slider, self.y_motor_slider, self.m_batt_input, 
                     self.x_batt_slider, self.m_payload_input, self.x_payload_slider, 
@@ -1137,6 +1208,7 @@ class WyngWindow(QMainWindow):
                 self.vcruise_input.setText(state.get('v_cruise', '15.0'))
                 self.speed_unit_combo.setCurrentText(state.get('speed_unit', 'm/s'))
                 self.tail_combo.setCurrentText(state.get('tail_type', 'Classique'))
+                self.htail_shape_combo.setCurrentText(state.get('htail_shape', 'Trapézoïdale'))
                 
                 is_flying_wing = (self.tail_combo.currentText() == "Aile Volante")
                 self.airfoil_combo.clear()
